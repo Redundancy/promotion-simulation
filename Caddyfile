@@ -1,0 +1,6 @@
+:5173 {
+	root * .
+	file_server browse
+	encode zstd gzip
+	try_files {path} {path}/ {path}/index.html
+}

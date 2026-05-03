@@ -1,0 +1,163 @@
+/* Prototype-specific styles, extending sim-concepts/shared.css.
+   The shared file defines the palette + topbar + atoms. This file
+   layers the workspace-specific chrome the prototype needs. */
+
+/* shared.css linked separately in HTML to avoid @import quirks in some renderers. */
+
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); font-family: var(--sans); color: var(--fg); }
+
+/* CodeMirror integration */
+.cm-editor {
+  height: 100%;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  background: var(--bg) !important;
+}
+.cm-editor.cm-focused { outline: none !important; }
+.cm-scroller { font-family: var(--mono) !important; line-height: 1.7 !important; }
+.cm-gutters {
+  background: var(--bg) !important;
+  border-right: 1px solid var(--border) !important;
+  color: var(--fg-faint) !important;
+}
+.cm-activeLineGutter { background: var(--panel-2) !important; color: var(--fg) !important; }
+.cm-activeLine { background: rgba(106,169,255,0.04) !important; }
+.cm-content { caret-color: var(--accent) !important; padding: 14px 0 !important; }
+.cm-cursor { border-left-color: var(--accent) !important; border-left-width: 1.5px !important; }
+.cm-selectionBackground { background: rgba(106,169,255,0.20) !important; }
+.cm-line { padding: 0 18px !important; }
+
+/* CM6 our own dark token theme — applied inline via theme extension */
+.cm-tooltip { background: var(--panel-2) !important; border: 1px solid var(--border-strong) !important; color: var(--fg) !important; }
+
+/* Diagnostic underline */
+.cm-lintPoint::after { display: none; }
+.cm-diagnostic-error { border-left-color: var(--bad) !important; background: rgba(229,115,115,0.08) !important; }
+.cm-diagnostic { font-family: var(--mono) !important; font-size: 11px !important; color: var(--fg-dim) !important; }
+
+/* Buttons used inside the workspace */
+.btn {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.btn:hover:not(:disabled) { border-color: var(--border-strong); background: var(--panel-3); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.primary {
+  background: var(--accent);
+  color: #0a0d12;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn.primary:hover:not(:disabled) { background: #82b8ff; border-color: #82b8ff; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--fg-dim); }
+.btn.ghost:hover { color: var(--fg); border-color: var(--border); }
+.btn.danger { color: var(--bad); border-color: rgba(229,115,115,0.35); }
+.btn.danger:hover:not(:disabled) { background: rgba(229,115,115,0.08); }
+.btn.sm { padding: 3px 8px; font-size: 11px; }
+
+/* Modal / sheet shell */
+.scrim {
+  position: absolute; inset: 0;
+  background: rgba(8, 10, 14, 0.75);
+  backdrop-filter: blur(2px);
+  z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* File-tree row */
+.tree-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 14px 3px 26px;
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.tree-row:hover { background: rgba(255,255,255,0.02); color: var(--fg); }
+.tree-row.active { background: var(--accent-soft); color: var(--fg); border-left-color: var(--accent); }
+.tree-row .ico { width: 14px; font-size: 10px; opacity: 0.85; flex: none; text-align: center; }
+.tree-row .ico.json { color: #e0b75c; }
+.tree-row .ico.js   { color: #dcdcaa; }
+.tree-folder {
+  padding: 8px 14px 2px;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--fg-faint);
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+
+/* Tab strip */
+.tab {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px;
+  font-family: var(--mono); font-size: 11.5px;
+  border-right: 1px solid var(--border);
+  border-top: 1px solid transparent;
+  color: var(--fg-faint);
+  background: transparent;
+  cursor: pointer;
+  height: 100%;
+}
+.tab:hover { color: var(--fg-dim); }
+.tab.active {
+  background: var(--bg);
+  color: var(--fg);
+  border-top-color: var(--accent);
+}
+.tab .ico { opacity: 0.85; }
+.tab .ico.json { color: #e0b75c; }
+.tab .ico.js   { color: #dcdcaa; }
+.tab .x { color: var(--fg-faint); padding: 0 2px; opacity: 0; transition: opacity 100ms; }
+.tab:hover .x { opacity: 1; }
+.tab .x:hover { color: var(--fg); }
+
+/* Status bar */
+.status {
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 18px; height: 28px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--fg-faint);
+  flex: none;
+}
+
+/* Trace strip */
+.trace {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  height: 36px;
+  padding: 0 18px;
+  display: flex; align-items: center; gap: 14px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--fg-dim);
+  flex: none;
+  overflow: hidden;
+}
+.trace .label {
+  color: var(--fg-faint);
+  letter-spacing: 0.12em; text-transform: uppercase;
+  font-size: 10px;
+  flex: none;
+}
+
+/* Animations */
+@keyframes blink   { 50% { opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lift    { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.promote-edge:hover rect { fill: var(--panel-3); stroke-opacity: 1; }
+.promote-edge:hover text { fill: var(--accent) !important; }
+.fade-in   { animation: fade-in 160ms ease-out forwards; }
+.lift      { animation: lift 220ms cubic-bezier(.2,.7,.3,1) forwards; }
+.slide-down{ animation: slide-down 220ms cubic-bezier(.2,.7,.3,1) forwards; }

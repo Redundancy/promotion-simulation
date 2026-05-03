@@ -1,0 +1,12 @@
+caddy.exe
+caddy
+.caddy/
+node_modules
+dist
+.vite
+*.log
+.DS_Store
+
+# Design handoff bundle from Claude Design — kept locally for reference, not part of the project.
+promotion-simulation-handoff/
+promotion-simulation-handoff.zip

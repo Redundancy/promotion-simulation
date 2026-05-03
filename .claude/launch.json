@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "static",
+      "runtimeExecutable": "./caddy.exe",
+      "runtimeArgs": ["run", "--config", "Caddyfile", "--adapter", "caddyfile"],
+      "port": 5173
+    }
+  ]
+}
