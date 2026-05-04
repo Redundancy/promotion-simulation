@@ -120,24 +120,7 @@ function branchInUseByEnv(state, branch) {
 // Default content seeded into a new file based on extension.
 function defaultContentFor(path) {
   if (path.endsWith(".js")) {
-    return `// build.js — runs in a sandboxed Web Worker on every deploy.
-//
-// Arguments:
-//   env  — frozen identity attributes from envs.json:
-//            { name, tier, region, ...other identity attrs the scenario seeded }
-//          (no version / lineage / config — those are runtime fields)
-//
-//   api  — file readers scoped to THIS script's branch (read-only):
-//            api.readJson(path) -> Promise<object>   (parses JSON, throws on parse error)
-//            api.readText(path) -> Promise<string>   (raw file contents)
-//
-// Return value:
-//   Whatever you return becomes this env's resolved config (must be JSON-serialisable).
-//
-// Determinism:
-//   Date is frozen, Math.random throws, fetch/XHR/WebSocket are removed.
-//   The script must be a pure function of (env, files read via api).
-
+    return `${window.BUILD_JS_DOCS}
 export default async function build(env, api) {
   return { env: env.name };
 }

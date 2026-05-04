@@ -152,6 +152,91 @@ function deepEqualSubset(actual, expected) {
   return mismatchedExpectedKeys(actual, expected).length === 0;
 }
 
+// Canonical documentation block for build.js scripts. Used by both the
+// "+ new file" default template and any scenario seeding a build.js, so
+// the contract stays in one place and doesn't drift.
+//
+// What this docstring needs to make obvious:
+//   1. WHY this file exists (what the simulator does with it)
+//   2. WHEN it runs
+//   3. WHAT it must return
+//   4. The shape of (env, api)
+//   5. The determinism constraints
+const BUILD_JS_DOCS =
+`// ─────────────────────────────────────────────────────────────────────
+// build.js — produces the resolved configuration for an environment.
+//
+// HOW THIS FITS INTO THE SIMULATOR
+// ────────────────────────────────
+// Every env has a "source" pointer (set in the env card's source picker)
+// — either a .json file (used as-is) or a .js script like this one.
+//
+// When you press DEPLOY on an env whose source is a .js file:
+//   1. The simulator spins up a sandboxed Web Worker.
+//   2. It calls the script's default export with (env, api).
+//   3. Whatever the script RETURNS becomes that env's resolved config.
+//
+// The resolved config is what:
+//   • the env card shows under "deployed"
+//   • the diff banner compares against "expected"
+//   • the scenario's directives check
+//
+// So the script's job is: given an env's identity and any files it can
+// read on its own branch, produce the JSON object that env should run.
+//
+// ARGUMENTS
+// ─────────
+// env  — frozen identity object for the env being deployed.
+//        Always present:   env.name (e.g. "dev"), env.tier (e.g. "prod")
+//        Often present:    env.region, env.datacenter, env.cloud
+//                          (whatever identity fields the scenario seeded)
+//        NOT present:      version, lineage, config, source — those are
+//                          runtime/state fields, not identity. The script
+//                          must be a pure function of (env, files).
+//
+// api  — read-only file accessors, scoped to the branch this script
+//        lives on (scripts can't peek into other branches by design):
+//
+//          await api.readJson(path)  → object   (throws on parse error)
+//          await api.readText(path)  → string
+//
+//        Paths are relative to the branch root, e.g. "config/dev.json".
+//
+// RETURN VALUE
+// ────────────
+// Must return a JSON-serialisable object. The simulator round-trips it
+// through JSON.parse(JSON.stringify(...)) to enforce serialisability —
+// no functions, no circular refs, no class instances.
+//
+// DETERMINISM
+// ───────────
+// Date is frozen at the epoch, Math.random throws, fetch / XHR /
+// WebSocket are removed. Same inputs → same output, every time.
+//
+// EXAMPLES
+// ────────
+// Just read a per-env file and return it:
+//
+//   const cfg = await api.readJson(\`config/\${env.name}.json\`);
+//   return cfg;
+//
+// Layered config — defaults overridden by per-env values:
+//
+//   const defaults = await api.readJson("config/defaults.json");
+//   const override = await api.readJson(\`config/\${env.name}.json\`);
+//   return { ...defaults, ...override };
+//
+// Derive values from identity attributes the scenario seeded:
+//
+//   const base = await api.readJson("config/base.json");
+//   return {
+//     ...base,
+//     logLevel: env.tier === "prod" ? "warn" : "debug",
+//     hostname: \`\${base.serviceName}.\${env.name}.\${env.region}.example.com\`,
+//   };
+// ─────────────────────────────────────────────────────────────────────
+`;
+
 // Render the canonical envs.json text for a set of env definitions. Used by
 // the reducer when a source-remap action mutates the picker state.
 function renderEnvsJson(envs, envOrder) {
@@ -189,6 +274,7 @@ Object.assign(window, {
   // helpers
   parseConfig, isConfigPath, envForSourceLocation, fmtTime,
   fileKey, parseFileKey, renderEnvsJson, renderPromotionsJson,
+  BUILD_JS_DOCS,
   // expected-config helpers
   materializeExpected, expectedCtxFromState, envIdentityOf, ENV_RUNTIME_FIELDS,
   mismatchedExpectedKeys, deepEqualSubset,
