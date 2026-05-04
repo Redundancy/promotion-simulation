@@ -43,7 +43,23 @@ function IntroScene({ dispatch }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {scenarios.map((s) => (
               <button key={s.id}
-                      onClick={() => dispatch({ type: "LOAD_SCENARIO", scenarioId: s.id })}
+                      onClick={() => {
+                        // Try to restore saved progress first; fall back to a
+                        // fresh start if nothing's saved (or it's the wrong
+                        // schema version).
+                        let restored = false;
+                        try {
+                          const raw = localStorage.getItem(window.storageKeyFor(s.id));
+                          if (raw) {
+                            const saved = JSON.parse(raw);
+                            if (saved && saved.__v === 4 && saved.state) {
+                              dispatch({ type: "HYDRATE", state: saved.state });
+                              restored = true;
+                            }
+                          }
+                        } catch {}
+                        if (!restored) dispatch({ type: "LOAD_SCENARIO", scenarioId: s.id });
+                      }}
                       style={{
                         textAlign: "left",
                         background: "var(--bg)",
@@ -83,7 +99,57 @@ function IntroScene({ dispatch }) {
 // Workspace pieces
 // ─────────────────────────────────────────────────────────────────────
 
+// Files that are auto-managed projections. Participants can't create or
+// delete them; the topology / source-picker UIs are the canonical editors.
+const PROTECTED_FILES = new Set(["envs.json", "promotions.json"]);
+
+function isProtectedFile(path) { return PROTECTED_FILES.has(path); }
+
+function fileInUseByEnv(state, branch, path) {
+  return Object.values(state.envs || {}).some(
+    (e) => e.source && e.source.branch === branch && e.source.path === path,
+  );
+}
+
+function branchInUseByEnv(state, branch) {
+  return Object.values(state.envs || {}).some(
+    (e) => e.source && e.source.branch === branch,
+  );
+}
+
+// Default content seeded into a new file based on extension.
+function defaultContentFor(path) {
+  if (path.endsWith(".js")) {
+    return `// build.js — runs in a sandboxed Web Worker on every deploy.
+//
+// Arguments:
+//   env  — frozen identity attributes from envs.json:
+//            { name, tier, region, ...other identity attrs the scenario seeded }
+//          (no version / lineage / config — those are runtime fields)
+//
+//   api  — file readers scoped to THIS script's branch (read-only):
+//            api.readJson(path) -> Promise<object>   (parses JSON, throws on parse error)
+//            api.readText(path) -> Promise<string>   (raw file contents)
+//
+// Return value:
+//   Whatever you return becomes this env's resolved config (must be JSON-serialisable).
+//
+// Determinism:
+//   Date is frozen, Math.random throws, fetch/XHR/WebSocket are removed.
+//   The script must be a pure function of (env, files read via api).
+
+export default async function build(env, api) {
+  return { env: env.name };
+}
+`;
+  }
+  return "{}\n";
+}
+
 function FileTree({ state, dispatch }) {
+  const [newFileOpen, setNewFileOpen] = React.useState(false);
+  const [newBranchOpen, setNewBranchOpen] = React.useState(false);
+
   const branchNames = Object.keys(state.repo.branches);
   const currentBranch = state.repo.currentBranch;
   const branchFiles = state.repo.branches[currentBranch] || {};
@@ -107,7 +173,6 @@ function FileTree({ state, dispatch }) {
       ftype: p.endsWith(".js") ? "js" : "json",
     });
   }
-  // Move root-level files (no folder) to the top.
   grouped.sort((a, b) => {
     const aRoot = a.kind === "file" && !a.name.includes("/");
     const bRoot = b.kind === "file" && !b.name.includes("/");
@@ -118,40 +183,100 @@ function FileTree({ state, dispatch }) {
 
   const dirtyCount = Object.values(state.dirty).filter(Boolean).length;
 
+  const headerLabelStyle = {
+    fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg-faint)",
+    letterSpacing: "0.12em", textTransform: "uppercase",
+  };
+
+  const onDeleteFile = (path) => {
+    if (isProtectedFile(path)) return;
+    if (fileInUseByEnv(state, currentBranch, path)) return;
+    if (!confirm(`Delete ${currentBranch}:${path}?`)) return;
+    dispatch({ type: "DELETE_FILE", branch: currentBranch, path });
+  };
+
+  const onDeleteBranch = (name) => {
+    if (branchNames.length <= 1) return;
+    if (branchInUseByEnv(state, name)) return;
+    if (name === currentBranch) return;
+    if (!confirm(`Delete branch ${name}?`)) return;
+    dispatch({ type: "DELETE_BRANCH", name });
+  };
+
   return (
     <div style={{ borderRight: "1px solid var(--border)", background: "var(--panel)",
                   display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      {/* Header */}
       <div style={{ padding: "8px 14px", background: "var(--panel-2)",
                     borderBottom: "1px solid var(--border)",
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    gap: 8 }}>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg-faint)",
-                       letterSpacing: "0.12em", textTransform: "uppercase" }}>
-          repo
-        </span>
-        {branchNames.length > 1 ? (
-          <select value={currentBranch}
-                  onChange={(e) => dispatch({ type: "SWITCH_BRANCH", branch: e.target.value })}
-                  style={{
-                    background: "var(--panel)", color: "var(--fg)",
-                    border: "1px solid var(--border)", borderRadius: 3,
-                    fontFamily: "var(--mono)", fontSize: 11, padding: "1px 4px",
-                  }}>
-            {branchNames.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
-        ) : (
-          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg-dim)",
-                         letterSpacing: "0.04em" }}>
-            {currentBranch}
-          </span>
-        )}
+                    display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={headerLabelStyle}>repo</span>
         {dirtyCount > 0 && (
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--accent)" }}>
             {dirtyCount} edited
           </span>
         )}
       </div>
-      <div style={{ padding: "6px 0", overflow: "auto", flex: 1 }}>
+
+      {/* Branches section */}
+      <div style={{ padding: "8px 14px 6px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={headerLabelStyle}>branches</span>
+          <button onClick={() => setNewBranchOpen(true)}
+                  title="create a new branch"
+                  style={{
+                    background: "transparent", border: "none", color: "var(--fg-faint)",
+                    fontFamily: "var(--mono)", fontSize: 11, cursor: "pointer", padding: "0 2px",
+                  }}>+ new</button>
+        </div>
+        {branchNames.map((b) => {
+          const active = b === currentBranch;
+          const inUse = branchInUseByEnv(state, b);
+          const isLast = branchNames.length === 1;
+          const canDelete = !active && !inUse && !isLast;
+          const reason = isLast ? "last branch" : active ? "current branch" : inUse ? "in use by an env source" : null;
+          return (
+            <div key={b}
+                 onClick={() => !active && dispatch({ type: "SWITCH_BRANCH", branch: b })}
+                 style={{
+                   display: "flex", alignItems: "center", gap: 6,
+                   padding: "3px 6px", marginBottom: 1,
+                   borderRadius: 3, cursor: active ? "default" : "pointer",
+                   background: active ? "var(--accent-soft)" : "transparent",
+                   borderLeft: active ? "2px solid var(--accent)" : "2px solid transparent",
+                 }}>
+              <span style={{
+                fontFamily: "var(--mono)", fontSize: 11.5, flex: 1,
+                color: active ? "var(--fg)" : "var(--fg-dim)",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              }}>{b}</span>
+              <button onClick={(e) => { e.stopPropagation(); onDeleteBranch(b); }}
+                      disabled={!canDelete}
+                      title={canDelete ? `delete branch ${b}` : `can't delete: ${reason}`}
+                      style={{
+                        background: "transparent", border: "none",
+                        color: canDelete ? "var(--fg-faint)" : "var(--fg-faint)",
+                        opacity: canDelete ? 0.6 : 0.2,
+                        fontFamily: "var(--mono)", fontSize: 12, padding: "0 4px",
+                        cursor: canDelete ? "pointer" : "not-allowed",
+                      }}>×</button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Files section */}
+      <div style={{ padding: "8px 14px 4px",
+                    display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={headerLabelStyle}>files on {currentBranch}</span>
+        <button onClick={() => setNewFileOpen(true)}
+                title="create a new file"
+                style={{
+                  background: "transparent", border: "none", color: "var(--fg-faint)",
+                  fontFamily: "var(--mono)", fontSize: 11, cursor: "pointer", padding: "0 2px",
+                }}>+ new</button>
+      </div>
+      <div style={{ padding: "2px 0 6px", overflow: "auto", flex: 1 }}>
         {grouped.map((n, i) => {
           if (n.kind === "folder") {
             return <div key={`folder-${i}`} className="tree-folder">{n.name}</div>;
@@ -160,17 +285,220 @@ function FileTree({ state, dispatch }) {
                         && state.activeFile?.path === n.name;
           const label = n.name.includes("/") ? n.name.split("/").pop() : n.name;
           const dirty = !!state.dirty[window.fileKey(currentBranch, n.name)];
+          const protectedFile = isProtectedFile(n.name);
+          const inUse = fileInUseByEnv(state, currentBranch, n.name);
+          const canDelete = !protectedFile && !inUse;
+          const reason = protectedFile ? "auto-managed" : inUse ? "in use by an env source" : null;
           return (
             <div key={n.name} className={`tree-row ${isActive ? "active" : ""}`}
+                 style={{ display: "flex", alignItems: "center" }}
                  onClick={() => dispatch({ type: "OPEN_FILE", branch: currentBranch, path: n.name })}>
               <span className={`ico ${n.ftype}`}>{n.ftype === "json" ? "{}" : "ƒ"}</span>
               <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {label}
               </span>
-              {dirty && <span style={{ color: "var(--accent)" }}>•</span>}
+              {dirty && <span style={{ color: "var(--accent)", marginRight: 4 }}>•</span>}
+              <button onClick={(e) => { e.stopPropagation(); onDeleteFile(n.name); }}
+                      disabled={!canDelete}
+                      className="tree-row-x"
+                      title={canDelete ? `delete ${n.name}` : `can't delete: ${reason}`}
+                      style={{
+                        background: "transparent", border: "none",
+                        color: "var(--fg-faint)",
+                        opacity: canDelete ? 0.5 : 0.15,
+                        fontFamily: "var(--mono)", fontSize: 12, padding: "0 4px",
+                        cursor: canDelete ? "pointer" : "not-allowed",
+                      }}>×</button>
             </div>
           );
         })}
+      </div>
+
+      {newFileOpen && (
+        <NewFileModal state={state} branch={currentBranch}
+                      onClose={() => setNewFileOpen(false)}
+                      onCreate={(path, content) => {
+                        dispatch({ type: "NEW_FILE", branch: currentBranch, path, content });
+                        dispatch({ type: "OPEN_FILE", branch: currentBranch, path });
+                        setNewFileOpen(false);
+                      }} />
+      )}
+      {newBranchOpen && (
+        <NewBranchModal state={state}
+                        onClose={() => setNewBranchOpen(false)}
+                        onCreate={(name, copyFrom) => {
+                          dispatch({ type: "NEW_BRANCH", name, copyFrom });
+                          dispatch({ type: "SWITCH_BRANCH", branch: name });
+                          setNewBranchOpen(false);
+                        }} />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// New-file modal
+// ─────────────────────────────────────────────────────────────────────
+
+function NewFileModal({ state, branch, onClose, onCreate }) {
+  const [path, setPath] = React.useState("");
+  const [content, setContent] = React.useState("");
+  const [touched, setTouched] = React.useState(false);
+
+  const branchFiles = state.repo.branches[branch] || {};
+
+  let error = null;
+  if (touched) {
+    if (!path) error = "path required";
+    else if (path.startsWith("/")) error = "no leading /";
+    else if (path in branchFiles) error = "file already exists on this branch";
+    else if (isProtectedFile(path)) error = `${path} is auto-managed`;
+  }
+
+  const submit = () => {
+    setTouched(true);
+    if (!path || path.startsWith("/") || path in branchFiles || isProtectedFile(path)) return;
+    const c = content || defaultContentFor(path);
+    onCreate(path, c);
+  };
+
+  // Auto-fill default content when path extension is known and content empty.
+  const defaultPreview = path ? defaultContentFor(path) : "";
+
+  return (
+    <div className="scrim fade-in" onClick={onClose} style={{ zIndex: 60 }}>
+      <div className="lift" onClick={(e) => e.stopPropagation()}
+           style={{ width: 480, background: "var(--panel)",
+                    border: "1px solid var(--border-strong)", borderRadius: 8,
+                    boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)",
+                      fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600 }}>
+          new file on {branch}
+        </div>
+        <div style={{ padding: "16px 18px", fontFamily: "var(--mono)", fontSize: 12 }}>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ color: "var(--fg-faint)", fontSize: 10, marginBottom: 4,
+                          letterSpacing: "0.08em", textTransform: "uppercase" }}>path</div>
+            <input type="text" value={path}
+                   onChange={(e) => { setPath(e.target.value); setTouched(true); }}
+                   onKeyDown={(e) => e.key === "Enter" && submit()}
+                   placeholder="e.g. config/dev.json or scripts/build.js"
+                   autoFocus
+                   style={{
+                     width: "100%", background: "var(--bg)", color: "var(--fg)",
+                     border: "1px solid var(--border)", borderRadius: 3,
+                     fontFamily: "var(--mono)", fontSize: 12, padding: "6px 8px",
+                   }} />
+            {error && (
+              <div style={{ color: "var(--bad)", fontSize: 10.5, marginTop: 4 }}>{error}</div>
+            )}
+          </div>
+          <div>
+            <div style={{ color: "var(--fg-faint)", fontSize: 10, marginBottom: 4,
+                          letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              initial content {!content && path && <span style={{ textTransform: "none" }}>(default for {path.endsWith(".js") ? ".js" : ".json"})</span>}
+            </div>
+            <textarea value={content}
+                      onChange={(e) => setContent(e.target.value)}
+                      placeholder={defaultPreview}
+                      rows={6}
+                      style={{
+                        width: "100%", background: "var(--bg)", color: "var(--fg)",
+                        border: "1px solid var(--border)", borderRadius: 3,
+                        fontFamily: "var(--mono)", fontSize: 11.5, padding: "6px 8px",
+                        resize: "vertical",
+                      }} />
+          </div>
+        </div>
+        <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)",
+                      display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button className="btn" onClick={onClose}>cancel</button>
+          <button className="btn primary" onClick={submit}>create</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// New-branch modal
+// ─────────────────────────────────────────────────────────────────────
+
+function NewBranchModal({ state, onClose, onCreate }) {
+  const branchNames = Object.keys(state.repo.branches);
+  const [name, setName] = React.useState("");
+  const [copyFrom, setCopyFrom] = React.useState(state.repo.currentBranch || branchNames[0] || "");
+  const [empty, setEmpty] = React.useState(false);
+  const [touched, setTouched] = React.useState(false);
+
+  let error = null;
+  if (touched) {
+    if (!name) error = "name required";
+    else if (name in state.repo.branches) error = "branch already exists";
+    else if (/[/\s]/.test(name)) error = "no slashes or spaces in branch names";
+  }
+
+  const submit = () => {
+    setTouched(true);
+    if (!name || name in state.repo.branches || /[/\s]/.test(name)) return;
+    onCreate(name, empty ? null : copyFrom);
+  };
+
+  return (
+    <div className="scrim fade-in" onClick={onClose} style={{ zIndex: 60 }}>
+      <div className="lift" onClick={(e) => e.stopPropagation()}
+           style={{ width: 420, background: "var(--panel)",
+                    border: "1px solid var(--border-strong)", borderRadius: 8,
+                    boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)",
+                      fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600 }}>
+          new branch
+        </div>
+        <div style={{ padding: "16px 18px", fontFamily: "var(--mono)", fontSize: 12 }}>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ color: "var(--fg-faint)", fontSize: 10, marginBottom: 4,
+                          letterSpacing: "0.08em", textTransform: "uppercase" }}>name</div>
+            <input type="text" value={name}
+                   onChange={(e) => { setName(e.target.value); setTouched(true); }}
+                   onKeyDown={(e) => e.key === "Enter" && submit()}
+                   placeholder="e.g. dev"
+                   autoFocus
+                   style={{
+                     width: "100%", background: "var(--bg)", color: "var(--fg)",
+                     border: "1px solid var(--border)", borderRadius: 3,
+                     fontFamily: "var(--mono)", fontSize: 12, padding: "6px 8px",
+                   }} />
+            {error && (
+              <div style={{ color: "var(--bad)", fontSize: 10.5, marginTop: 4 }}>{error}</div>
+            )}
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6,
+                            color: "var(--fg-dim)", fontSize: 11, cursor: "pointer" }}>
+              <input type="checkbox" checked={empty} onChange={(e) => setEmpty(e.target.checked)} />
+              start empty (no files copied)
+            </label>
+          </div>
+          {!empty && (
+            <div>
+              <div style={{ color: "var(--fg-faint)", fontSize: 10, marginBottom: 4,
+                            letterSpacing: "0.08em", textTransform: "uppercase" }}>copy from</div>
+              <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}
+                      style={{
+                        width: "100%", background: "var(--bg)", color: "var(--fg)",
+                        border: "1px solid var(--border)", borderRadius: 3,
+                        fontFamily: "var(--mono)", fontSize: 12, padding: "6px 8px",
+                      }}>
+                {branchNames.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)",
+                      display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button className="btn" onClick={onClose}>cancel</button>
+          <button className="btn primary" onClick={submit}>create</button>
+        </div>
       </div>
     </div>
   );
@@ -564,6 +892,15 @@ function TopBar({ state, dispatch }) {
   const allOk = total > 0 && sat === total;
   return (
     <div className="cb-topbar">
+      <button onClick={() => dispatch({ type: "EXIT_TO_INTRO" })}
+              title="back to scenario chooser (your progress is saved)"
+              style={{
+                background: "transparent", border: "none",
+                color: "var(--fg-faint)", fontFamily: "var(--mono)", fontSize: 11,
+                cursor: "pointer", padding: "0 8px 0 0",
+              }}>
+        ← scenarios
+      </button>
       <h1>promotion-simulation</h1>
       <span className="scenario">
         {sc ? `${sc.id} · ${sc.title}` : "—"}
@@ -581,9 +918,13 @@ function TopBar({ state, dispatch }) {
       <span className={`pill ${allOk ? "good" : "warn"}`}>
         {sat} / {total} directives
       </span>
-      <button className="btn primary" onClick={() => dispatch({ type: "VALIDATE" })}>
-        validate
-      </button>
+      {allOk && (
+        <button className="btn primary"
+                onClick={() => dispatch({ type: "SET_SCENE", scene: "debrief" })}
+                title="all directives satisfied — review the debrief">
+          view debrief →
+        </button>
+      )}
     </div>
   );
 }

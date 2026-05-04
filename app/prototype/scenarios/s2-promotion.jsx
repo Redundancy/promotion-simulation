@@ -28,7 +28,6 @@
   const envOrder = ["dev", "staging", "prod"];
 
   const initialFiles = {
-    "envs.json": window.renderEnvsJson(envs, envOrder),
     "config/dev.json":     JSON.stringify({ appVersion: "v1.0.0" }, null, 2),
     "config/staging.json": JSON.stringify({ appVersion: "v1.0.0" }, null, 2),
     "config/prod.json":    JSON.stringify({ appVersion: "v1.0.0" }, null, 2),
@@ -55,8 +54,18 @@ export default function build({ env, source }) {
     envs,
     envOrder,
     promoteEdges: [
-      { id: "dev->staging",  from: "dev",     to: "staging" },
-      { id: "staging->prod", from: "staging", to: "prod" },
+      {
+        id: "dev->staging", from: "dev", to: "staging",
+        effects: [{ kind: "copy-file",
+                    from: { branch: "main", path: "config/dev.json" },
+                    to:   { branch: "main", path: "config/staging.json" } }],
+      },
+      {
+        id: "staging->prod", from: "staging", to: "prod",
+        effects: [{ kind: "copy-file",
+                    from: { branch: "main", path: "config/staging.json" },
+                    to:   { branch: "main", path: "config/prod.json" } }],
+      },
     ],
     // All three envs should end up at v1.1.0.
     expectedConfig: {

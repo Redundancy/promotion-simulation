@@ -41,9 +41,9 @@
 //     completed:       bool
 //   }
 
-const STORAGE_KEY_PREFIX = "sim-prototype.v3";
-const STORAGE_LAST_SCENARIO = "sim-prototype.v3.lastScenario";
-const SCHEMA_VERSION = 3;
+const STORAGE_KEY_PREFIX = "sim-prototype.v4";
+const STORAGE_LAST_SCENARIO = "sim-prototype.v4.lastScenario";
+const SCHEMA_VERSION = 4;
 
 function storageKeyFor(scenarioId) {
   return `${STORAGE_KEY_PREFIX}.${scenarioId}`;
@@ -60,6 +60,7 @@ function emptyState() {
     repo: { branches: {}, currentBranch: "main" },
     dirty: {},
     envs: {},
+    promoteEdges: [],          // participant-editable; seeded from scenario.promoteEdges
     deploying: {},
     firedTriggers: [],         // ids of scenario triggers that have already fired
     activeRequirements: [],    // ids of in-force scenario requirements (drives expectedConfigFor)
@@ -82,6 +83,19 @@ function makeStateForScenario(scenarioId) {
   if (!sc) return emptyState();
   const branches = deepClone(sc.branches || { main: {} });
   const currentBranch = branches.main ? "main" : Object.keys(branches)[0];
+  // Seed promote edges from scenario (deep clone — they become participant-
+  // editable from this point on). Strip any `when` predicates the scenario
+  // may have declared (legacy from when scenarios served multiple strategies
+  // via a single edge); participants edit the effect list directly now.
+  const seedEdges = deepClone(sc.promoteEdges || []).map((e) => ({
+    id: e.id,
+    from: e.from,
+    to: e.to,
+    effects: (e.effects || []).map((eff) => {
+      const { when, ...rest } = eff;
+      return rest;
+    }),
+  }));
   // Default-open: the env source script of the first env (if .js), else the
   // first config file, plus envs.json for orientation.
   const branchFiles = Object.keys(branches[currentBranch] || {});
@@ -118,6 +132,7 @@ function makeStateForScenario(scenarioId) {
     scenarioId,
     repo: { branches, currentBranch },
     envs: seededEnvs,
+    promoteEdges: seedEdges,
     activeFile,
     openFiles,
     trace: [
@@ -127,6 +142,12 @@ function makeStateForScenario(scenarioId) {
   };
   return recomputeDirectives(s);
 }
+
+// envs.json and promotions.json are GLOBAL scenario state (env definitions
+// and the promote graph). They are NOT per-branch repo files — the
+// structured UIs in the topology sheet are the canonical editors. Earlier
+// versions projected them into every branch's file tree, which conflated
+// global config with per-branch repo content. Don't.
 
 // ─────────────────────────────────────────────────────────────────────
 // Directives
@@ -283,30 +304,184 @@ function reducer(state, action) {
         ...state.envs,
         [env.name]: { ...env, source: newSource },
       };
-      const sc = state.scenarioId ? window.getScenario(state.scenarioId) : null;
-      const envsText = window.renderEnvsJson(newEnvs, sc?.envOrder);
-      let s2 = {
-        ...state,
-        envs: newEnvs,
-        repo: {
-          ...state.repo,
-          branches: {
-            ...state.repo.branches,
-            [state.repo.currentBranch]: {
-              ...state.repo.branches[state.repo.currentBranch],
-              "envs.json": envsText,
-            },
-          },
-        },
-      };
-      const seed = sc?.branches?.[state.repo.currentBranch]?.["envs.json"];
-      s2.dirty = { ...s2.dirty, [window.fileKey(state.repo.currentBranch, "envs.json")]: envsText !== seed };
+      let s2 = { ...state, envs: newEnvs };
       const s3 = appendTrace(s2, {
         kind: "remap",
         text: `remap ${env.name} → ${newSource.branch}:${newSource.path}`,
         env: env.name,
       });
       return recomputeDirectives(s3);
+    }
+
+    case "NEW_FILE": {
+      const { branch, path, content } = action;
+      if (!branch || !path) return state;
+      const b = state.repo.branches[branch];
+      if (!b) return state;
+      if (path in b) return state;  // collision
+      if (path === "envs.json" || path === "promotions.json") return state; // managed
+      const next = writeFile(state, branch, path, content || "");
+      return recomputeDirectives(next);
+    }
+
+    case "DELETE_FILE": {
+      const { branch, path } = action;
+      if (!branch || !path) return state;
+      if (path === "envs.json" || path === "promotions.json") return state;
+      // Refuse if any env sources from this file.
+      const inUse = Object.values(state.envs).some(
+        (e) => e.source && e.source.branch === branch && e.source.path === path,
+      );
+      if (inUse) return state;
+      let next = deleteFile(state, branch, path);
+      // Close the file if it was open; clear active if it matched.
+      const key = window.fileKey(branch, path);
+      const newOpen = next.openFiles.filter((f) => !(f.branch === branch && f.path === path));
+      let newActive = next.activeFile;
+      if (newActive && newActive.branch === branch && newActive.path === path) {
+        newActive = newOpen[0] || null;
+      }
+      const newDirty = { ...next.dirty };
+      delete newDirty[key];
+      next = { ...next, openFiles: newOpen, activeFile: newActive, dirty: newDirty };
+      return recomputeDirectives(next);
+    }
+
+    case "NEW_BRANCH": {
+      const { name, copyFrom } = action;
+      if (!name || typeof name !== "string") return state;
+      if (state.repo.branches[name]) return state;  // already exists
+      const sourceFiles = copyFrom && state.repo.branches[copyFrom]
+        ? deepClone(state.repo.branches[copyFrom])
+        : {};
+      let s2 = {
+        ...state,
+        repo: {
+          ...state.repo,
+          branches: { ...state.repo.branches, [name]: sourceFiles },
+        },
+      };
+      s2 = appendTrace(s2, {
+        kind: "repo-edit",
+        branch: name,
+        path: "(branch)",
+        action: "create",
+        text: copyFrom ? `branch ${name} created from ${copyFrom}` : `branch ${name} created (empty)`,
+      });
+      return recomputeDirectives(s2);
+    }
+
+    case "DELETE_BRANCH": {
+      const { name } = action;
+      const branchNames = Object.keys(state.repo.branches);
+      if (branchNames.length <= 1) return state;
+      if (!state.repo.branches[name]) return state;
+      // Refuse if currentBranch or any env sources from it.
+      if (state.repo.currentBranch === name) return state;
+      const inUse = Object.values(state.envs).some((e) => e.source && e.source.branch === name);
+      if (inUse) return state;
+      const newBranches = { ...state.repo.branches };
+      delete newBranches[name];
+      // Close any open files on this branch.
+      const newOpen = state.openFiles.filter((f) => f.branch !== name);
+      const newActive = state.activeFile && state.activeFile.branch === name ? (newOpen[0] || null) : state.activeFile;
+      const newDirty = {};
+      for (const [k, v] of Object.entries(state.dirty)) {
+        const parsed = window.parseFileKey(k);
+        if (parsed && parsed.branch !== name) newDirty[k] = v;
+      }
+      let s2 = {
+        ...state,
+        repo: { ...state.repo, branches: newBranches },
+        openFiles: newOpen,
+        activeFile: newActive,
+        dirty: newDirty,
+      };
+      s2 = appendTrace(s2, {
+        kind: "repo-edit",
+        branch: name,
+        path: "(branch)",
+        action: "delete",
+        text: `branch ${name} deleted`,
+      });
+      return recomputeDirectives(s2);
+    }
+
+    case "ADD_PROMOTE_EDGE": {
+      const { from, to } = action;
+      if (!from || !to) return state;
+      if (!state.envs[from] || !state.envs[to]) return state;
+      // Ensure id uniqueness.
+      const baseId = `${from}->${to}`;
+      let id = baseId;
+      let n = 2;
+      while ((state.promoteEdges || []).some((e) => e.id === id)) {
+        id = `${baseId}:${n++}`;
+      }
+      const newEdges = [...(state.promoteEdges || []), { id, from, to, effects: [] }];
+      let s2 = { ...state, promoteEdges: newEdges };
+      s2 = appendTrace(s2, {
+        kind: "promote-graph",
+        text: `+ edge ${from} → ${to}`,
+      });
+      return recomputeDirectives(s2);
+    }
+
+    case "REMOVE_PROMOTE_EDGE": {
+      const { id } = action;
+      const edge = (state.promoteEdges || []).find((e) => e.id === id);
+      if (!edge) return state;
+      const newEdges = state.promoteEdges.filter((e) => e.id !== id);
+      let s2 = { ...state, promoteEdges: newEdges };
+      s2 = appendTrace(s2, {
+        kind: "promote-graph",
+        text: `× edge ${edge.from} → ${edge.to}`,
+      });
+      return recomputeDirectives(s2);
+    }
+
+    case "ADD_PROMOTE_EFFECT": {
+      const { edgeId, effect } = action;
+      const newEdges = (state.promoteEdges || []).map((e) =>
+        e.id === edgeId ? { ...e, effects: [...(e.effects || []), { ...effect }] } : e,
+      );
+      let s2 = { ...state, promoteEdges: newEdges };
+      const edge = newEdges.find((e) => e.id === edgeId);
+      s2 = appendTrace(s2, {
+        kind: "promote-graph",
+        text: `+ effect on ${edge?.from} → ${edge?.to}: ${effect.kind}`,
+      });
+      return recomputeDirectives(s2);
+    }
+
+    case "REMOVE_PROMOTE_EFFECT": {
+      const { edgeId, index } = action;
+      const newEdges = (state.promoteEdges || []).map((e) => {
+        if (e.id !== edgeId) return e;
+        const effects = [...(e.effects || [])];
+        effects.splice(index, 1);
+        return { ...e, effects };
+      });
+      let s2 = { ...state, promoteEdges: newEdges };
+      const edge = newEdges.find((e) => e.id === edgeId);
+      s2 = appendTrace(s2, {
+        kind: "promote-graph",
+        text: `× effect on ${edge?.from} → ${edge?.to}`,
+      });
+      return recomputeDirectives(s2);
+    }
+
+    case "UPDATE_PROMOTE_EFFECT": {
+      const { edgeId, index, effect } = action;
+      const newEdges = (state.promoteEdges || []).map((e) => {
+        if (e.id !== edgeId) return e;
+        const effects = [...(e.effects || [])];
+        if (index < 0 || index >= effects.length) return e;
+        effects[index] = { ...effect };
+        return { ...e, effects };
+      });
+      const s2 = { ...state, promoteEdges: newEdges };
+      return recomputeDirectives(s2);
     }
 
     case "DEPLOY_START": {
@@ -397,8 +572,11 @@ function reducer(state, action) {
         }
       }
 
-      // Look up scenario-declared effects on the edge.
-      const edge = (sc?.promoteEdges || []).find((e) => e.from === action.from && e.to === action.to);
+      // Effects come from state.promoteEdges (participant-editable). When
+      // a scenario seeds edges, they're copied into state.promoteEdges at
+      // LOAD_SCENARIO time. From then on the participant edits via the
+      // topology UI / promotions.json projection.
+      const edge = (state.promoteEdges || []).find((e) => e.from === action.from && e.to === action.to);
       const effects = edge?.effects;
 
       let s2 = { ...state, confirm: null };
@@ -406,22 +584,9 @@ function reducer(state, action) {
       const appliedEffects = [];
 
       if (effects && effects.length > 0) {
-        // Apply scenario-declared effects. Each effect may carry an optional
-        // `when({ fromEnv, toEnv, state }) => bool` guard; if present and
-        // false, the effect is skipped (silently). Used by scenarios that
-        // declare multiple effects to cover several promotion strategies and
-        // want only the applicable one to fire based on where envs are
-        // currently sourcing from.
+        // Apply effects in order. No `when` predicates anymore — effects
+        // are pure data and the participant adds/removes them as needed.
         for (const step of effects) {
-          if (typeof step.when === "function") {
-            let pass = false;
-            try {
-              pass = !!step.when({ fromEnv, toEnv, state: s2 });
-            } catch (e) {
-              console.warn(`promote effect "${step.kind}" when() threw`, e);
-            }
-            if (!pass) continue;
-          }
           try {
             s2 = applyEffect(s2, step);
             appliedEffects.push(step.kind);
@@ -437,14 +602,18 @@ function reducer(state, action) {
         // effects have been applied. Subsequent deploy-of-to compares the
         // source text it actually deploys to this snapshot.
         snapshot = readFile(s2, toEnv.source.branch, toEnv.source.path);
-      } else {
-        // Default: snapshot from-env's deployed source text into to-env's
-        // source-file path.
-        snapshot = fromEnv.deployedSource ?? readFile(state, fromEnv.source.branch, fromEnv.source.path);
-        if (snapshot !== null) {
-          s2 = writeFile(s2, toEnv.source.branch, toEnv.source.path, snapshot);
-          appliedEffects.push("copy-source-text");
-        }
+      }
+
+      // No effects configured = no-op promote. Record a trace event but
+      // don't write any files and don't set pendingFrom — the participant
+      // explicitly chose not to wire effects on this edge.
+      if (!effects || effects.length === 0) {
+        const s3 = appendTrace(s2, {
+          kind: "promote",
+          text: `promote ${fromEnv.name} → ${toEnv.name} — no effects configured (no-op)`,
+          from: fromEnv.name, to: toEnv.name,
+        });
+        return recomputeDirectives(s3);
       }
 
       const newEnvs = {

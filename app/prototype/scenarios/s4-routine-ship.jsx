@@ -1,180 +1,107 @@
 /* global window */
 // Scenario s4-routine-ship — "Routine version bump."
 //
-// Three envs (dev, staging, prod). The repo is seeded with multiple
-// branches and two file layouts so the participant can pick whichever
-// promotion strategy they like:
+// Three envs (dev, staging, prod). The repo seed is intentionally minimal:
+// just the main branch with one config file per env, plus default copy-file
+// promote effects. The participant decides everything else — whether to
+// stay on main or create per-env branches; whether to use a build script;
+// what shape the config takes; what each promote edge actually does.
 //
-//   A) Single-branch, JSON-only             — source = main:config/<env>.json
-//   B) Single-branch, with build script     — source = main:build.js
-//                                              (script reads main:config/<env>.json)
-//   C) Branch-per-env, JSON-only            — source = <env>:config.json
-//   D) Branch-per-env, with build script    — source = <env>:build.js
-//                                              (script reads <env>:config.json)
+// Promotion strategies the participant can build out of this:
+//   A) Stay on main with per-env JSON files (default — works out of the box)
+//   B) Add a main:build.js, repoint sources to it, edit the config files
+//      it reads
+//   C) Create dev/staging/prod branches (from main), repoint sources to
+//      <env>:config/<env>.json (or whatever they put there), swap promote
+//      effects to copy-branch
+//   D) Anything in between
 //
-// Promote effects are declared with `when` guards so only the strategy-
-// appropriate effect runs:
-//   - copy-file (main:config/<from>.json → main:config/<to>.json) when both
-//     envs source from main
-//   - copy-branch (<from> → <to>) when envs source from per-env branches
-//
-// Initial sources default to strategy A. The participant repoints sources
-// via the topology env-card pickers to switch.
-//
-// Mid-flow event: when dev hits v1.1.0, a security advisory fires
-// announcing v1.0.1 + the apiTimeoutMs requirement that applies to v1.0.1
-// AND v1.1.0. The participant has to satisfy the new expected on every env,
-// in whatever way fits their chosen strategy.
+// Mid-flow: when dev hits v1.1.0, a security advisory fires (CVE-2025-12345
+// patched by setting apiTimeoutMs: 5000 in resolved config). The advisory
+// applies to v1.0.1 and later, including v1.1.0 — the participant has to
+// thread the new value through whatever structure they chose.
 
 (function () {
   const REQ_ID = "apiTimeout-cve-2025-12345";
   const REQUIRED_TIMEOUT = 5000;
 
-  // build.js content used on the main branch — reads per-env config files
-  // because main holds all three envs' configs side by side.
-  const buildJsForMain =
-`// build.js — runs on every deploy that points at it.
-// Reads the per-env config file. Whatever keys the config has flow through
-// to the resolved config; this script only tags the result with env identity.
-export default async function build(env, api) {
-  const cfg = await api.readJson(\`config/\${env.name}.json\`);
-  return { ...cfg, env: env.name, tier: env.tier };
-}
-`;
+  // Env-specific config values that the simulator expects across the
+  // participant's whole run. Pre-seeded into each env's config file (so the
+  // initial state is in-spec) and re-checked by expectedConfigFor below
+  // (so any drift after a naive promote shows up immediately).
+  const LOG_BY_ENV     = { dev: "debug", staging: "info", prod: "warn" };
+  const REPLICAS_BY_ENV = { dev: 1,       staging: 2,      prod: 5      };
 
-  // build.js content used on a per-env branch — reads the singular config.json
-  // because each per-env branch is "that env's own view of the world".
-  const buildJsForPerEnv =
-`// build.js — runs on every deploy that points at it.
-// On a per-env branch, the env's config lives at config.json (singular).
-// Whatever keys it has flow through; this script only tags the result.
-export default async function build(env, api) {
-  const cfg = await api.readJson("config.json");
-  return { ...cfg, env: env.name, tier: env.tier };
-}
-`;
+  function seededConfig(envName, version) {
+    return {
+      appVersion: version,
+      logLevel: LOG_BY_ENV[envName],
+      replicas: REPLICAS_BY_ENV[envName],
+    };
+  }
 
-  // Minimal initial config: just the application version. The participant
-  // adds keys (and decides where they live) as new requirements arrive.
-  const minimalConfig = JSON.stringify({ appVersion: "v1.0.0" }, null, 2);
+  function configFileText(envName) {
+    return JSON.stringify(seededConfig(envName, "v1.0.0"), null, 2);
+  }
 
-  // Scenario seeds env definitions before scenario state exists, so build
-  // envs.json text from a literal projection (renderEnvsJson reads back the
-  // env shape we'll seed below).
   const envs = {
     dev: {
       name: "dev", tier: "dev", region: "us-east-1",
-      // Default to strategy A (single-branch, JSON-only).
       source: { branch: "main", path: "config/dev.json" },
       version: "v1.0.0", artifactId: "seed-dev",
       lineage: ["dev"], lastDeploy: "seed",
-      config: { appVersion: "v1.0.0" },
+      config: seededConfig("dev", "v1.0.0"),
     },
     staging: {
       name: "staging", tier: "staging", region: "us-east-1",
       source: { branch: "main", path: "config/staging.json" },
       version: "v1.0.0", artifactId: "seed-staging",
       lineage: ["staging"], lastDeploy: "seed",
-      config: { appVersion: "v1.0.0" },
+      config: seededConfig("staging", "v1.0.0"),
     },
     prod: {
       name: "prod", tier: "prod", region: "us-east-1",
       source: { branch: "main", path: "config/prod.json" },
       version: "v1.0.0", artifactId: "seed-prod",
       lineage: ["prod"], lastDeploy: "seed",
-      config: { appVersion: "v1.0.0" },
+      config: seededConfig("prod", "v1.0.0"),
     },
   };
 
   const envOrder = ["dev", "staging", "prod"];
-  const envsJsonText = window.renderEnvsJson(envs, envOrder);
 
-  // Four branches so the participant can pick any strategy:
-  //   - main:    per-env layout (config/dev.json, config/staging.json, ...)
-  //   - dev,
-  //     staging,
-  //     prod:    each holds that env's own world (config.json + build.js)
+  // Single branch; participant creates more (or doesn't) via the file tree.
   const branches = {
     main: {
-      "build.js": buildJsForMain,
-      "config/dev.json":     minimalConfig,
-      "config/staging.json": minimalConfig,
-      "config/prod.json":    minimalConfig,
-      "envs.json":           envsJsonText,
-    },
-    dev: {
-      "build.js": buildJsForPerEnv,
-      "config.json": minimalConfig,
-      "envs.json":   envsJsonText,
-    },
-    staging: {
-      "build.js": buildJsForPerEnv,
-      "config.json": minimalConfig,
-      "envs.json":   envsJsonText,
-    },
-    prod: {
-      "build.js": buildJsForPerEnv,
-      "config.json": minimalConfig,
-      "envs.json":   envsJsonText,
+      "config/dev.json":     configFileText("dev"),
+      "config/staging.json": configFileText("staging"),
+      "config/prod.json":    configFileText("prod"),
     },
   };
 
   window.defineScenario({
     id: "s4-routine-ship",
     title: "routine version bump",
-    summary: "Ship v1.1.0 across dev → staging → prod. The repo is seeded with several branches and file layouts — pick whichever organisation feels right.",
+    summary: "Ship v1.1.0 across dev → staging → prod. The repo starts minimal — you build the structure that fits your strategy.",
     premise: [
       "The dev team handed you v1.1.0 — a routine update. Three envs (dev, staging, prod), all currently at v1.0.0.",
       "",
-      "How you organise the configuration is up to you. The repo's seeded with several options:",
-      "  • main branch — per-env config files at config/dev.json, config/staging.json, config/prod.json (plus a build.js that reads them).",
-      "  • dev / staging / prod branches — each carries a singular config.json plus a build.js that reads it.",
+      "The repo is one branch (main) with one config file per env. Each env has its own quirks (different log levels, different replica counts) baked into its config. The promotion paths dev → staging → prod are declared but have NO effects configured — promote does nothing until you wire it up.",
       "",
-      "Use the env-card source picker (in the environments | promote | deploy sheet) to point each env wherever you like — JSON file, build script, on main, on a per-env branch — whatever fits your style.",
-      "",
-      "Get all three envs to v1.1.0.",
+      "Build out whatever structure fits. Create branches, create or delete files, configure promote effects, repoint env sources — all via the repo and topology panels. Get all three envs to v1.1.0 with their per-env values intact.",
     ].join("\n"),
     branches,
     envs,
     envOrder,
+    // Promotion paths are scenario-defined; effects are participant-defined.
+    // No effects seeded — promote is a no-op until the participant adds
+    // explicit effects (copy-file / copy-branch) in the topology editor.
+    // Without effects they can still ship by editing each env's config
+    // by hand and deploying — promote is a power tool they configure when
+    // they want it to do work for them.
     promoteEdges: [
-      {
-        id: "dev->staging", from: "dev", to: "staging",
-        // Two effects, gated by `when` so only the strategy-appropriate one
-        // fires. Single-branch strategies (sources on main) → copy-file.
-        // Branch-per-env strategies (sources on per-env branches) → copy-branch.
-        effects: [
-          {
-            kind: "copy-file",
-            from: { branch: "main", path: "config/dev.json" },
-            to:   { branch: "main", path: "config/staging.json" },
-            when: ({ fromEnv, toEnv }) =>
-              fromEnv.source.branch === "main" && toEnv.source.branch === "main",
-          },
-          {
-            kind: "copy-branch", from: "dev", to: "staging",
-            when: ({ fromEnv, toEnv }) =>
-              fromEnv.source.branch === "dev" && toEnv.source.branch === "staging",
-          },
-        ],
-      },
-      {
-        id: "staging->prod", from: "staging", to: "prod",
-        effects: [
-          {
-            kind: "copy-file",
-            from: { branch: "main", path: "config/staging.json" },
-            to:   { branch: "main", path: "config/prod.json" },
-            when: ({ fromEnv, toEnv }) =>
-              fromEnv.source.branch === "main" && toEnv.source.branch === "main",
-          },
-          {
-            kind: "copy-branch", from: "staging", to: "prod",
-            when: ({ fromEnv, toEnv }) =>
-              fromEnv.source.branch === "staging" && toEnv.source.branch === "prod",
-          },
-        ],
-      },
+      { id: "dev->staging",  from: "dev",     to: "staging", effects: [] },
+      { id: "staging->prod", from: "staging", to: "prod",    effects: [] },
     ],
     topologyNodes: {
       dev:     { x: 200, y: 130 },
@@ -198,7 +125,18 @@ export default async function build(env, api) {
       additionalProperties: true,
     },
     expectedConfigFor: (env, version, ctx) => {
-      const base = { appVersion: version };
+      // Per-env values: each env has a different logLevel and replica count
+      // (think dev wants verbose logs and a single instance, prod wants
+      // quieter logs and headroom). A naive copy-file promote ships the
+      // source env's values forward — overwriting the target's per-env
+      // values until the participant fixes them. The participant decides
+      // how to handle that: edit each file by hand, refactor to a build
+      // script that branches on env identity, or use branch-per-env.
+      const base = {
+        appVersion: version,
+        logLevel: LOG_BY_ENV[env.name],
+        replicas: REPLICAS_BY_ENV[env.name],
+      };
       const advisoryActive = (ctx?.activeRequirements || []).includes(REQ_ID);
       if (advisoryActive && version !== "v1.0.0") {
         return { ...base, apiTimeoutMs: REQUIRED_TIMEOUT };

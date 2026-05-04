@@ -77,6 +77,19 @@ function makeDirectiveAPI(state) {
 
   const branches = () => Object.keys(repo.branches);
 
+  // Deep-cloned, frozen view of the runtime promote graph. Lets process
+  // directives reason about what the participant has actually configured
+  // (vs the scenario's seed). e.g. "every prod artifact came through
+  // staging" can check that an edge from staging → prod exists, that prod's
+  // lineage includes staging, etc.
+  const promoteEdges = () => {
+    const edges = state.promoteEdges || [];
+    return Object.freeze(edges.map((e) => Object.freeze({
+      id: e.id, from: e.from, to: e.to,
+      effects: Object.freeze((e.effects || []).map((eff) => Object.freeze({ ...eff }))),
+    })));
+  };
+
   return Object.freeze({
     env,
     expected,
@@ -84,6 +97,7 @@ function makeDirectiveAPI(state) {
     source,
     file,
     branches,
+    promoteEdges,
     trace: Object.freeze(state.trace),
   });
 }

@@ -23,7 +23,6 @@
   // wants entirely — so the participant has to actually edit, not just
   // change a number.
   const initialFiles = {
-    "envs.json": window.renderEnvsJson(envs, envOrder),
     "config/dev.json": JSON.stringify(
       {
         appVersion: "",

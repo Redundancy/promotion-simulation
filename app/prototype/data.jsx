@@ -169,12 +169,26 @@ function renderEnvsJson(envs, envOrder) {
   }, null, 2);
 }
 
+// Render the canonical promotions.json text. Mirrors renderEnvsJson — a
+// read-only projection of state.promoteEdges so participants can see what's
+// configured. The topology UI is the canonical editor.
+function renderPromotionsJson(promoteEdges) {
+  return JSON.stringify({
+    edges: (promoteEdges || []).map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      effects: (e.effects || []).map((eff) => ({ ...eff })),
+    })),
+  }, null, 2);
+}
+
 Object.assign(window, {
   // scenario registry
   defineScenario, listScenarios, getScenario,
   // helpers
   parseConfig, isConfigPath, envForSourceLocation, fmtTime,
-  fileKey, parseFileKey, renderEnvsJson,
+  fileKey, parseFileKey, renderEnvsJson, renderPromotionsJson,
   // expected-config helpers
   materializeExpected, expectedCtxFromState, envIdentityOf, ENV_RUNTIME_FIELDS,
   mismatchedExpectedKeys, deepEqualSubset,

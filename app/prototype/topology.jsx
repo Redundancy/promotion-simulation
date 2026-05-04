@@ -7,7 +7,12 @@ function TopologySheet({ state, dispatch, getState }) {
   const { envs, directiveStates, repo } = state;
   const sc = state.scenarioId ? window.getScenario(state.scenarioId) : null;
   const nodes = sc?.topologyNodes || {};
-  const edges = sc?.promoteEdges || [];
+  // Edges come from state (participant-editable) once a scenario is loaded.
+  // Falls back to the scenario's seed if state hasn't been initialized for
+  // edges yet (defensive — should always be initialized via LOAD_SCENARIO).
+  const edges = state.promoteEdges && state.promoteEdges.length >= 0
+    ? state.promoteEdges
+    : (sc?.promoteEdges || []);
   const directives = sc?.directives || [];
 
   // Defensive: if state isn't fully formed, render nothing and log so we can
@@ -169,6 +174,9 @@ function TopologySheet({ state, dispatch, getState }) {
           </div>
         </div>
 
+        {/* Promote effects editor */}
+        <PromoteEffectsEditor state={state} dispatch={dispatch} />
+
         {/* Directives strip */}
         <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)",
                       background: "var(--panel-2)" }}>
@@ -199,6 +207,201 @@ function TopologySheet({ state, dispatch, getState }) {
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Promote effects editor — sits below the env-graph canvas. Lists every
+// edge in state.promoteEdges with its effects. Participants can:
+//   - add/remove edges
+//   - add/remove effects per edge
+//   - choose effect kind + parameters
+// ─────────────────────────────────────────────────────────────────────
+
+function PromoteEffectsEditor({ state, dispatch }) {
+  const edges = state.promoteEdges || [];
+  const branchNames = Object.keys(state.repo.branches || {});
+
+  // Promotion edges are scenario-defined (they describe the promotion graph
+  // — which envs can promote to which). Participants don't add or remove
+  // them; they configure what runs on each edge by adding/removing effects.
+  // An edge with no effects is a true no-op — promote records a trace
+  // event but doesn't write any files. Configure copy-file or copy-branch
+  // effects to make promote actually move things.
+  const [adding, setAdding] = React.useState(null);
+  // adding: null | { mode: "effect", edgeId }
+
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", padding: "10px 18px",
+                  background: "var(--panel)" }}>
+      <div style={{ marginBottom: 8 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg-faint)",
+                       letterSpacing: "0.12em", textTransform: "uppercase" }}>
+          promote effects
+        </span>
+      </div>
+
+      {edges.length === 0 && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--fg-faint)",
+                      fontStyle: "italic" }}>
+          this scenario declares no promotion paths
+        </div>
+      )}
+
+      {edges.map((edge) => (
+        <EdgeRow key={edge.id} edge={edge}
+                 branchNames={branchNames}
+                 onRemoveEffect={(idx) => dispatch({
+                   type: "REMOVE_PROMOTE_EFFECT", edgeId: edge.id, index: idx,
+                 })}
+                 onAddEffect={(effect) => dispatch({
+                   type: "ADD_PROMOTE_EFFECT", edgeId: edge.id, effect,
+                 })}
+                 isAdding={adding?.mode === "effect" && adding.edgeId === edge.id}
+                 setAdding={setAdding} />
+      ))}
+    </div>
+  );
+}
+
+const editorBtnStyle = {
+  background: "transparent", border: "1px solid var(--border)",
+  borderRadius: 3, color: "var(--fg-dim)",
+  fontFamily: "var(--mono)", fontSize: 11, padding: "2px 8px", cursor: "pointer",
+};
+
+function EdgeRow({ edge, branchNames, onRemoveEffect, onAddEffect, isAdding, setAdding }) {
+  return (
+    <div style={{ marginBottom: 8, padding: "6px 8px",
+                  background: "var(--bg)", border: "1px solid var(--border)",
+                  borderRadius: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 11.5,
+                       color: "var(--fg)", fontWeight: 600 }}>
+          {edge.from} → {edge.to}
+        </span>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setAdding({ mode: "effect", edgeId: edge.id })}
+                style={editorBtnStyle}>+ effect</button>
+      </div>
+
+      {(edge.effects || []).length === 0 && !isAdding && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--fg-faint)",
+                      fontStyle: "italic", paddingLeft: 4 }}>
+          no effects — promote will be a no-op
+        </div>
+      )}
+
+      {(edge.effects || []).map((eff, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8,
+                              padding: "2px 4px", marginBottom: 1 }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--fg-dim)",
+                         flex: 1 }}>
+            {describeEffect(eff)}
+          </span>
+          <button onClick={() => onRemoveEffect(i)}
+                  title="remove this effect"
+                  style={{
+                    background: "transparent", border: "none", color: "var(--fg-faint)",
+                    fontFamily: "var(--mono)", fontSize: 12, padding: "0 4px",
+                    cursor: "pointer", opacity: 0.6,
+                  }}>×</button>
+        </div>
+      ))}
+
+      {isAdding && (
+        <AddEffectForm branchNames={branchNames}
+                       onCancel={() => setAdding(null)}
+                       onCreate={(eff) => { onAddEffect(eff); setAdding(null); }} />
+      )}
+    </div>
+  );
+}
+
+function describeEffect(eff) {
+  if (eff.kind === "copy-file") {
+    const f = eff.from || {};
+    const t = eff.to || {};
+    return `copy-file  ${f.branch || "?"}:${f.path || "?"}  →  ${t.branch || "?"}:${t.path || "?"}`;
+  }
+  if (eff.kind === "copy-branch") {
+    return `copy-branch  ${eff.from || "?"}  →  ${eff.to || "?"}`;
+  }
+  return `${eff.kind} (unknown)`;
+}
+
+function AddEffectForm({ branchNames, onCancel, onCreate }) {
+  const [kind, setKind] = React.useState("copy-file");
+  const [fromBranch, setFromBranch] = React.useState(branchNames[0] || "");
+  const [fromPath, setFromPath] = React.useState("");
+  const [toBranch, setToBranch] = React.useState(branchNames[0] || "");
+  const [toPath, setToPath] = React.useState("");
+
+  // For copy-branch, fromPath/toPath are unused.
+  const submit = () => {
+    if (kind === "copy-file") {
+      if (!fromBranch || !fromPath || !toBranch || !toPath) return;
+      onCreate({ kind, from: { branch: fromBranch, path: fromPath },
+                            to:   { branch: toBranch,   path: toPath } });
+    } else if (kind === "copy-branch") {
+      if (!fromBranch || !toBranch) return;
+      onCreate({ kind, from: fromBranch, to: toBranch });
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 6, padding: "8px 10px",
+                  background: "var(--bg)", border: "1px dashed var(--border-strong)",
+                  borderRadius: 3, display: "flex", flexWrap: "wrap", alignItems: "center",
+                  gap: 6, fontFamily: "var(--mono)", fontSize: 10.5 }}>
+      <select value={kind} onChange={(e) => setKind(e.target.value)} style={inlineSelectStyle}>
+        <option value="copy-file">copy-file</option>
+        <option value="copy-branch">copy-branch</option>
+      </select>
+      {kind === "copy-file" ? (
+        <>
+          <select value={fromBranch} onChange={(e) => setFromBranch(e.target.value)} style={inlineSelectStyle}>
+            {branchNames.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+          <span style={{ color: "var(--fg-faint)" }}>:</span>
+          <input value={fromPath} onChange={(e) => setFromPath(e.target.value)}
+                 placeholder="from path" style={inlineInputStyle} />
+          <span style={{ color: "var(--fg-faint)" }}>→</span>
+          <select value={toBranch} onChange={(e) => setToBranch(e.target.value)} style={inlineSelectStyle}>
+            {branchNames.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+          <span style={{ color: "var(--fg-faint)" }}>:</span>
+          <input value={toPath} onChange={(e) => setToPath(e.target.value)}
+                 placeholder="to path" style={inlineInputStyle} />
+        </>
+      ) : (
+        <>
+          <select value={fromBranch} onChange={(e) => setFromBranch(e.target.value)} style={inlineSelectStyle}>
+            {branchNames.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+          <span style={{ color: "var(--fg-faint)" }}>→</span>
+          <select value={toBranch} onChange={(e) => setToBranch(e.target.value)} style={inlineSelectStyle}>
+            {branchNames.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </>
+      )}
+      <span style={{ flex: 1 }} />
+      <button style={editorBtnStyle} onClick={onCancel}>cancel</button>
+      <button style={{ ...editorBtnStyle, color: "var(--accent)" }} onClick={submit}>add</button>
+    </div>
+  );
+}
+
+const inlineSelectStyle = {
+  background: "var(--panel)", color: "var(--fg)",
+  border: "1px solid var(--border)", borderRadius: 3,
+  fontFamily: "var(--mono)", fontSize: 10.5, padding: "1px 4px",
+};
+
+const inlineInputStyle = {
+  background: "var(--panel)", color: "var(--fg)",
+  border: "1px solid var(--border)", borderRadius: 3,
+  fontFamily: "var(--mono)", fontSize: 10.5, padding: "1px 4px",
+  width: 120,
+};
 
 // ─────────────────────────────────────────────────────────────────────
 // Env node card — name, drift dot, version, source picker, deploy button

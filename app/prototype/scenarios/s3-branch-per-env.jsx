@@ -34,10 +34,29 @@
   }
 
   const buildJs =
-`// build.js — runs on every deploy.
-// Each env's source points at THIS file on its own branch. Reads layered
-// config files from the same branch, merges (most-specific wins), then
-// derives a load-balancer hostname from a composition of layered values.
+`// build.js — runs in a sandboxed Web Worker on every deploy.
+//
+// Arguments:
+//   env  — frozen identity attributes from envs.json:
+//            { name, tier, region, datacenter, ...other identity attrs the
+//              scenario seeded } (no version / lineage / config — those are
+//              runtime fields, not identity)
+//
+//   api  — file readers scoped to THIS script's branch (read-only):
+//            api.readJson(path) -> Promise<object>   (parses JSON; throws on parse error)
+//            api.readText(path) -> Promise<string>   (raw file contents)
+//
+// Return value:
+//   Whatever you return becomes this env's resolved config (must be
+//   JSON-serialisable — the simulator round-trips it through JSON.stringify).
+//
+// Determinism:
+//   Date is frozen, Math.random throws, fetch/XHR/WebSocket are removed.
+//   The script must be a pure function of (env, file contents read via api).
+//
+// In this scenario the script reads four layered files and merges them
+// (most-specific wins), then derives a load-balancer hostname from a
+// composition of layered values.
 export default async function build(env, api) {
   const defaults = await api.readJson("layers/defaults.json");
   const region   = await api.readJson(\`layers/region/\${env.region}.json\`);
@@ -134,9 +153,9 @@ export default async function build(env, api) {
   const envOrder = ["dev", "staging", "prod"];
 
   const branches = {
-    dev:     { ...layeredFiles, "envs.json": window.renderEnvsJson(envs, envOrder) },
-    staging: { ...layeredFiles, "envs.json": window.renderEnvsJson(envs, envOrder) },
-    prod:    { ...layeredFiles, "envs.json": window.renderEnvsJson(envs, envOrder) },
+    dev:     { ...layeredFiles },
+    staging: { ...layeredFiles },
+    prod:    { ...layeredFiles },
   };
 
   window.defineScenario({

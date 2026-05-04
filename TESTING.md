@@ -157,6 +157,52 @@ scenario that genuinely needs them.
 
 ---
 
+## Participant-authored repo (branches / files / promote effects)
+
+The participant can create branches, create/delete files, and configure
+promote effects. State is in `state.repo.branches` (with `currentBranch`),
+`state.envs[name].source`, and `state.promoteEdges` (seeded from the
+scenario's `promoteEdges` and edited from then on).
+
+### Bugs in this category
+
+- **Persistence wipe on chooser re-entry.** `LOAD_SCENARIO` always builds
+  fresh state via `makeStateForScenario`. If the chooser button always
+  dispatched `LOAD_SCENARIO`, clicking back-into-the-current-scenario from
+  the topbar's "← scenarios" link would silently wipe the participant's
+  progress. Fixed: the chooser tries `localStorage.getItem(storageKeyFor(id))`
+  first and dispatches `HYDRATE` when a v4 save exists; falls back to
+  `LOAD_SCENARIO` otherwise.
+- **envs.json / promotions.json conflated with repo files.** Earlier
+  versions projected these into every branch as auto-managed read-only
+  files. They're global scenario state, not per-branch repo content;
+  putting them in branches confused things and made `copy-branch` writes
+  bring stale projection data along. They no longer appear as files at
+  all — the structured UIs (env source picker, topology effects editor)
+  are the canonical editors.
+- **Default-snapshot promote behavior was sneaky.** With no effects
+  declared, promote used to do an implicit snapshot (copy from-env's
+  source text into to-env's source path). That meant the participant
+  thought they were configuring nothing, but the simulator was doing work
+  for them. Removed: with zero effects declared on an edge, promote is a
+  true no-op (records a trace event, doesn't write any files, doesn't
+  set `pendingFrom`). Scenarios that want promote to actually move
+  things must declare `copy-file` or `copy-branch` effects explicitly.
+
+### Always check
+
+- Add new fields to state? `emptyState()` must declare them, the HYDRATE
+  backfill (`{ ...emptyState(), ...action.state }`) covers absences.
+- Bump the schema version (currently v4) and `STORAGE_KEY_PREFIX` when
+  any persisted-state shape changes.
+- Confirm the chooser restores from a save; then a fresh-pick (via
+  `__reset` and re-pick) starts clean.
+- Adding a new scenario? Confirm: empty `promoteEdges` works (no-op
+  promote), `copy-file` and `copy-branch` effects work, the participant
+  can create branches and files atop the seed without colliding.
+
+---
+
 ## Things to manually click before claiming "done"
 
 After any change that touches state, persistence, or rendering:
