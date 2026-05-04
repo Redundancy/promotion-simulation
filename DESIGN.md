@@ -8,6 +8,10 @@ through environments.
 This document captures the design decisions reached during initial design
 conversations. It is intended to align implementation, not to enumerate features.
 
+> **Working on the code?** Read [TESTING.md](./TESTING.md) before changing
+> anything that touches state, persistence, or the topology sheet — it lists
+> real bugs we've already shipped and the click-paths that surface them.
+
 ---
 
 ## What this is, and isn't

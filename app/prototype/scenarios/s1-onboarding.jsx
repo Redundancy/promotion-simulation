@@ -51,6 +51,17 @@
     envs,
     envOrder,
     promoteEdges: [], // no promotions in a single-env scenario
+    // Expected resolved config per env at scenario completion. Surfaced in
+    // the ImpactRail so the participant can compare what's deployed against
+    // what the directives actually want, without parsing prose.
+    expectedConfig: {
+      dev: {
+        appVersion: "v1.0.0",
+        siteName: "Acme Platform",
+        supportEmail: "help@acme.example",
+        limits: { maxUploadMB: 25 },
+      },
+    },
     topologyNodes: {
       dev: { x: 450, y: 130 },
     },

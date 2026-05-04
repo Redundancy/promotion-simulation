@@ -25,23 +25,43 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+  // Capture the underlying error (not just React's "above error occurred"
+  // wrapper) so we have a stack to look at when something blows up.
+  window.__lastError = null;
+  window.addEventListener("error", function (ev) {
+    if (ev.error && !window.__lastError) {
+      window.__lastError = {
+        message: ev.error.message,
+        stack: ev.error.stack,
+        ts: Date.now(),
+      };
+      console.error("[capture] underlying error:", ev.error.message, ev.error.stack);
+    }
+  }, true);
+</script>
 
 <!-- Order matters: data.jsx defines defineScenario; scenarios register
      themselves into window.SCENARIOS; api.jsx provides makeDirectiveAPI;
      state.jsx reads scenarios at boot. -->
-<script type="text/babel" src="prototype/data.jsx"></script>
-<script type="text/babel" src="prototype/scenarios/api.jsx"></script>
-<!-- Scenarios load in chooser order (load order = display order). -->
-<script type="text/babel" src="prototype/scenarios/s1-onboarding.jsx"></script>
-<script type="text/babel" src="prototype/scenarios/s2-promotion.jsx"></script>
-<script type="text/babel" src="prototype/scenarios/s3-branch-per-env.jsx"></script>
-<!-- runtime.jsx provides deployEnv, used by topology.jsx ConfirmDialog. -->
-<script type="text/babel" src="prototype/runtime.jsx"></script>
-<script type="text/babel" src="prototype/state.jsx"></script>
-<script type="text/babel" src="prototype/editor.jsx"></script>
-<script type="text/babel" src="prototype/topology.jsx"></script>
-<script type="text/babel" src="prototype/scenes.jsx"></script>
-<script type="text/babel" src="prototype/app.jsx"></script>
+<!-- Cache-bust query param. Bump when scripts change so Babel-standalone
+     doesn't re-use cached compiles. (Babel fetches via XHR; some browsers
+     hold onto previous responses even with no-store, so version-stamping
+     is the reliable fix.) -->
+<script>document.write([
+  "data.jsx",
+  "scenarios/api.jsx",
+  "scenarios/s1-onboarding.jsx",
+  "scenarios/s2-promotion.jsx",
+  "scenarios/s3-branch-per-env.jsx",
+  "runtime.jsx",
+  "state.jsx",
+  "editor.jsx",
+  "topology.jsx",
+  "scenes.jsx",
+  "app.jsx",
+].map(p => `<script type="text/babel" src="prototype/${p}?v=${Date.now()}"></sc`+`ript>`).join("\n"));
+</script>
 
 </body>
 </html>

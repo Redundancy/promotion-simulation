@@ -255,7 +255,186 @@ function Breadcrumb({ activeFile, state }) {
   );
 }
 
-function ImpactRail({ state }) {
+// ─────────────────────────────────────────────────────────────────────
+// ConfigPanes — three stacked JSON pretty-prints showing the env's config
+// state at three layers of "currently true":
+//
+//   • expected     — declared by the scenario; the unambiguous target.
+//   • would deploy — what running deploy NOW would apply
+//                    (parsed source for JSON sources, or sandbox-resolved
+//                    script result for JS sources, debounced on edit).
+//   • deployed     — the snapshot from the most recent DEPLOY_RESOLVED.
+//
+// Per-key diff highlight: the "would deploy" and "deployed" panes color
+// keys that differ from expected. The header chip shows "N keys to satisfy"
+// (count of keys where deployed ≠ expected).
+// ─────────────────────────────────────────────────────────────────────
+
+function ConfigPanes({ env, sourceText, isJsSource, getState }) {
+  const sc = env ? window.getScenario(window.useStore ? null : null) : null; // placeholder; we get sc from caller via state below
+  // Compute "would deploy" for JSON sources synchronously from sourceText.
+  const jsonPreview = React.useMemo(() => {
+    if (isJsSource) return null;
+    try { return { ok: true, value: JSON.parse(sourceText || "") }; }
+    catch (e) { return { ok: false, error: e.message }; }
+  }, [isJsSource, sourceText]);
+
+  // For JS sources, run the script (debounced) when sourceText changes.
+  const [preview, setPreview] = React.useState({ status: "idle", value: null, error: null });
+  React.useEffect(() => {
+    if (!isJsSource || !env) { setPreview({ status: "idle", value: null, error: null }); return; }
+    let cancelled = false;
+    setPreview((p) => ({ ...p, status: "loading" }));
+    const t = setTimeout(async () => {
+      const result = await window.previewEnv(getState, env.name);
+      if (cancelled) return;
+      if (result.ok) setPreview({ status: "ok", value: result.value, error: null });
+      else setPreview({ status: "error", value: null, error: result.error });
+    }, 200);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [isJsSource, env?.name, sourceText, getState]);
+
+  const wouldDeploy = isJsSource
+    ? (preview.status === "ok" ? { ok: true, value: preview.value }
+      : preview.status === "error" ? { ok: false, error: preview.error }
+      : preview.status === "loading" ? { loading: true }
+      : null)
+    : jsonPreview;
+
+  const deployed = env?.config !== null && env?.config !== undefined
+    ? { ok: true, value: env.config }
+    : { empty: true };
+
+  // Pull the scenario's expected config for this env.
+  const scenarioId = getState ? getState().scenarioId : null;
+  const scenario = scenarioId ? window.getScenario(scenarioId) : null;
+  const expectedValue = scenario?.expectedConfig?.[env?.name];
+  const expected = expectedValue !== undefined
+    ? { ok: true, value: expectedValue }
+    : { undeclared: true };
+
+  // Diffs are computed against expected. (Both deployed and would-deploy.)
+  const expectedRef = expected.ok ? expected.value : null;
+  const deployedDiff   = computeChangedKeys(deployed.ok   ? deployed.value   : null, expectedRef);
+  const wouldDeployDiff = computeChangedKeys(wouldDeploy?.ok ? wouldDeploy.value : null, expectedRef);
+
+  return (
+    <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg-faint)",
+                       letterSpacing: "0.12em", textTransform: "uppercase" }}>
+          resolved config
+        </span>
+        {expected.ok && deployedDiff.length > 0 && (
+          <span className="tag warn" style={{ fontSize: 9.5 }}>
+            {deployedDiff.length} key{deployedDiff.length === 1 ? "" : "s"} to satisfy
+          </span>
+        )}
+        {expected.ok && deployedDiff.length === 0 && deployed.ok && (
+          <span className="tag good" style={{ fontSize: 9.5 }}>matches expected</span>
+        )}
+      </div>
+
+      <ConfigPane label="expected"
+                  result={expected}
+                  changedKeys={[]}
+                  side="reference" />
+      <ConfigPane label="would deploy now"
+                  result={wouldDeploy}
+                  changedKeys={wouldDeployDiff}
+                  side="staged" />
+      <ConfigPane label={`deployed${env?.lastDeploy && env.lastDeploy !== "seed" ? ` · ${window.fmtTime(env.lastDeploy)}` : env?.lastDeploy === "seed" ? " · seed" : ""}`}
+                  result={deployed}
+                  changedKeys={deployedDiff}
+                  side="live" />
+    </div>
+  );
+}
+
+function ConfigPane({ label, result, changedKeys, side }) {
+  let body;
+  if (!result || result.undeclared) {
+    body = <span style={{ color: "var(--fg-faint)", fontStyle: "italic" }}>(scenario doesn't declare an expected config for this env)</span>;
+  } else if (result.empty) {
+    body = <span style={{ color: "var(--fg-faint)", fontStyle: "italic" }}>(not yet deployed)</span>;
+  } else if (result.loading) {
+    body = <span style={{ color: "var(--fg-faint)", fontStyle: "italic" }}>resolving…</span>;
+  } else if (!result.ok) {
+    body = <span style={{ color: "var(--bad)" }}>{result.error || "(error)"}</span>;
+  } else {
+    body = <PrettyJson value={result.value} changedKeys={changedKeys} side={side} />;
+  }
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, color: "var(--fg-faint)",
+                    letterSpacing: "0.06em", marginBottom: 3 }}>
+        {label}
+      </div>
+      <pre style={{
+        margin: 0, padding: "8px 10px",
+        background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 3,
+        fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.55,
+        color: "var(--fg-dim)", whiteSpace: "pre-wrap", wordBreak: "break-word",
+        maxHeight: 180, overflow: "auto",
+      }}>
+        {body}
+      </pre>
+    </div>
+  );
+}
+
+// Pretty-print JSON with top-level changed keys highlighted.
+//   side === "reference" → no highlights (this is the source of truth)
+//   side === "staged"    → amber for keys that differ from expected
+//   side === "live"      → amber for keys that differ from expected
+function PrettyJson({ value, changedKeys, side }) {
+  if (value === null || value === undefined) return <span style={{ color: "var(--fg-faint)" }}>null</span>;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return <span>{JSON.stringify(value, null, 2)}</span>;
+  }
+  const changedSet = new Set(changedKeys);
+  const keys = Object.keys(value);
+  const out = ["{"];
+  keys.forEach((k, i) => {
+    const isLast = i === keys.length - 1;
+    const lineKey = JSON.stringify(k);
+    const lineVal = JSON.stringify(value[k], null, 2)
+      .split("\n")
+      .map((line, j) => j === 0 ? line : "  " + line)
+      .join("\n");
+    out.push({ k, line: `  ${lineKey}: ${lineVal}${isLast ? "" : ","}`, changed: changedSet.has(k) });
+  });
+  out.push("}");
+  return (
+    <>
+      {out.map((seg, i) => {
+        if (typeof seg === "string") return <span key={i}>{seg}{"\n"}</span>;
+        const highlight = seg.changed && side !== "reference";
+        const color = highlight ? "var(--warn)" : "var(--fg-dim)";
+        const bg = highlight ? "rgba(224,183,92,0.10)" : "transparent";
+        return (
+          <span key={seg.k} style={{ color, background: bg, display: "block" }}>
+            {seg.line}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function computeChangedKeys(a, b) {
+  if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) || Array.isArray(b)) return [];
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  const changed = [];
+  for (const k of keys) {
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) changed.push(k);
+  }
+  return changed;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+
+function ImpactRail({ state, getState }) {
   const { activeFile, repo, envs, dirty } = state;
   if (!activeFile) return <div style={{ borderLeft: "1px solid var(--border)", background: "var(--panel)" }} />;
   const sc = state.scenarioId ? window.getScenario(state.scenarioId) : null;
@@ -263,21 +442,14 @@ function ImpactRail({ state }) {
   const envOrder = sc?.envOrder || Object.keys(envs);
 
   // Identify the env (if any) whose source POINTS AT the file currently open.
-  // For .js sources this is "the env whose build script is open". For .json
-  // sources it's the env whose config file is open.
   const envName = window.envForSourceLocation(state, activeFile.branch, activeFile.path);
   const env = envName ? envs[envName] : null;
   const sourceText = env ? repo.branches[env.source.branch]?.[env.source.path] : null;
-  // For JSON sources, the deployed-vs-source version comparison still works
-  // by parsing the source text. For .js sources, "drift" can't be detected
-  // from the source text alone (the script reads other files); we conservatively
-  // mark drift if the source text differs from what was last deployed.
   const isJsSource = env && env.source.path.endsWith(".js");
-  let sourceVer = null;
   let driftHere = false;
   if (env && !isJsSource) {
     const sourceCfg = window.parseConfig(sourceText);
-    sourceVer = sourceCfg?.appVersion;
+    const sourceVer = sourceCfg?.appVersion;
     driftHere = !!(sourceVer && sourceVer !== env.version);
   } else if (env && isJsSource) {
     driftHere = !!(env.deployedSource && sourceText !== env.deployedSource);
@@ -302,36 +474,23 @@ function ImpactRail({ state }) {
             </div>
           </div>
 
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg-faint)",
-                          letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 10 }}>
-              version
-            </div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 12.5, lineHeight: 1.9 }}>
-              {!isJsSource && (
-                <div>
-                  <span style={{ color: "var(--fg-faint)", display: "inline-block", width: 64 }}>source</span>
-                  <span style={{ color: "#ce9178" }}>{sourceVer ?? "(invalid)"}</span>
-                  {dirty[window.fileKey(activeFile.branch, activeFile.path)] && (
-                    <span className="tag accent" style={{ marginLeft: 8, fontSize: 9.5 }}>unsaved</span>
-                  )}
-                </div>
-              )}
-              <div>
-                <span style={{ color: "var(--fg-faint)", display: "inline-block", width: 64 }}>deployed</span>
-                <span style={{ color: driftHere ? "var(--warn)" : "var(--fg)" }}>{env.version}</span>
-              </div>
-              {driftHere && (
-                <div style={{ marginTop: 8, padding: "6px 8px", background: "rgba(224,183,92,0.08)",
-                              border: "1px solid rgba(224,183,92,0.2)", borderRadius: 3,
-                              fontSize: 10.5, color: "var(--warn)" }}>
-                  {isJsSource
-                    ? `source script changed since last deploy — run deploy ${env.name} to re-resolve`
-                    : `source ahead of deploy — run deploy ${env.name} to apply`}
-                </div>
+          <ConfigPanes env={env}
+                       sourceText={sourceText}
+                       isJsSource={isJsSource}
+                       getState={getState} />
+
+          {driftHere && (
+            <div style={{ margin: "0 16px 12px", padding: "6px 8px", background: "rgba(224,183,92,0.08)",
+                          border: "1px solid rgba(224,183,92,0.2)", borderRadius: 3,
+                          fontSize: 10.5, color: "var(--warn)", fontFamily: "var(--mono)" }}>
+              {isJsSource
+                ? `source script changed since last deploy — run deploy ${env.name} to re-resolve`
+                : `source ahead of deploy — run deploy ${env.name} to apply`}
+              {dirty[window.fileKey(activeFile.branch, activeFile.path)] && (
+                <span className="tag accent" style={{ marginLeft: 8, fontSize: 9.5 }}>unsaved</span>
               )}
             </div>
-          </div>
+          )}
 
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg-faint)",
@@ -531,7 +690,7 @@ function WorkspaceScene({ state, dispatch, getState }) {
           </div>
         </div>
 
-        <ImpactRail state={state} />
+        <ImpactRail state={state} getState={getState} />
       </div>
 
       <TraceStrip state={state} />

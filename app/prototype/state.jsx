@@ -457,8 +457,13 @@ function reducer(state, action) {
       return { ...emptyState(), scene: "intro" };
     }
 
-    case "HYDRATE":
-      return recomputeDirectives(action.state);
+    case "HYDRATE": {
+      // Re-fill any fields that aren't in the saved state (e.g. transient
+      // fields stripped at persist-time, or fields added in newer code).
+      // emptyState() supplies defaults for anything missing.
+      const filled = { ...emptyState(), ...action.state };
+      return recomputeDirectives(filled);
+    }
 
     default:
       return state;

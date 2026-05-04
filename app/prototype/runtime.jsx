@@ -144,6 +144,13 @@ async function deployEnv(getState, dispatch, envName) {
   });
 }
 
+// Preview helper. Resolves an env's source against current state and returns
+// the result without dispatching anything. UI uses this to show "what would
+// be deployed if I hit deploy now" without committing.
+async function previewEnv(getState, envName) {
+  return resolveEnv(getState, envName);
+}
+
 Object.assign(window, {
-  resolveEnv, deployEnv, deriveVersion,
+  resolveEnv, deployEnv, previewEnv, deriveVersion,
 });

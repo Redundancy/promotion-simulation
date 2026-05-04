@@ -58,6 +58,12 @@ export default function build({ env, source }) {
       { id: "dev->staging",  from: "dev",     to: "staging" },
       { id: "staging->prod", from: "staging", to: "prod" },
     ],
+    // All three envs should end up at v1.1.0.
+    expectedConfig: {
+      dev:     { appVersion: "v1.1.0" },
+      staging: { appVersion: "v1.1.0" },
+      prod:    { appVersion: "v1.1.0" },
+    },
     topologyNodes: {
       dev:     { x: 200, y: 130 },
       staging: { x: 470, y: 130 },

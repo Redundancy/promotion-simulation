@@ -150,6 +150,42 @@ export default async function build(env, api) {
       staging: { x: 470, y: 130 },
       prod:    { x: 760, y: 130 },
     },
+    // Expected resolved config per env at scenario completion. Per-env
+    // values reflect the full layered merge (defaults → region → dc → env)
+    // after the appVersion bump and "new-checkout" feature flag have been
+    // shipped to dev and copy-branched forward.
+    expectedConfig: {
+      dev: {
+        appVersion: "v1.1.0",
+        logLevel: "debug",
+        featureFlags: ["new-checkout"],
+        regionLabel: "us-east-1",
+        failoverRegion: "us-west-2",
+        zone: "iad-1",
+        env: "dev",
+        tier: "dev",
+      },
+      staging: {
+        appVersion: "v1.1.0",
+        logLevel: "info",
+        featureFlags: ["new-checkout"],
+        regionLabel: "us-east-1",
+        failoverRegion: "us-west-2",
+        zone: "iad-2",
+        env: "staging",
+        tier: "staging",
+      },
+      prod: {
+        appVersion: "v1.1.0",
+        logLevel: "warn",
+        featureFlags: ["new-checkout"],
+        regionLabel: "us-west-2",
+        failoverRegion: "us-east-1",
+        zone: "pdx-1",
+        env: "prod",
+        tier: "prod",
+      },
+    },
     // No JSON-schema lint for layer files — they're heterogeneous and the
     // editor doesn't have a per-file schema mechanism. (Could be added per-
     // file later.)

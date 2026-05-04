@@ -3,4 +3,8 @@
 	file_server browse
 	encode zstd gzip
 	try_files {path} {path}/ {path}/index.html
+	# Disable browser caching for development — script changes should always
+	# be picked up on reload.
+	header Cache-Control "no-store, must-revalidate"
+	header Pragma "no-cache"
 }

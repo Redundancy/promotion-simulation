@@ -10,14 +10,29 @@ function TopologySheet({ state, dispatch, getState }) {
   const edges = sc?.promoteEdges || [];
   const directives = sc?.directives || [];
 
+  // Defensive: if state isn't fully formed, render nothing and log so we can
+  // see how it happened. (Hit during development on certain switch-branch
+  // sequences with stale persisted state.)
+  if (!repo || !repo.branches || !envs) {
+    console.warn("TopologySheet: degenerate state, refusing to render", {
+      hasRepo: !!repo,
+      hasBranches: !!(repo && repo.branches),
+      hasEnvs: !!envs,
+      scenarioId: state.scenarioId,
+    });
+    return null;
+  }
+
   const W = 900, H = 320;
 
   // Detect "drift". For JSON sources, drift = source.appVersion !== env.version.
   // For JS sources, drift = source script text changed since last deploy.
   const drift = (envName) => {
     const env = envs[envName];
-    if (!env) return false;
-    const text = repo.branches[env.source.branch]?.[env.source.path];
+    if (!env || !env.source) return false;
+    const branch = repo.branches[env.source.branch];
+    if (!branch) return false;
+    const text = branch[env.source.path];
     if (text === undefined) return false;
     if (env.source.path.endsWith(".js")) {
       return env.deployedSource !== null && env.deployedSource !== undefined && text !== env.deployedSource;
@@ -67,10 +82,12 @@ function TopologySheet({ state, dispatch, getState }) {
             </defs>
             {edges.map((e) => {
               const a = nodes[e.from], b = nodes[e.to];
-              if (!a || !b || !envs[e.from] || !envs[e.to]) return null;
-              const same = envs[e.from].artifactId === envs[e.to].artifactId
-                        && envs[e.from].version === envs[e.to].version
-                        && envs[e.to].lineage.includes(e.from);
+              const fromEnv = envs[e.from], toEnv = envs[e.to];
+              if (!a || !b || !fromEnv || !toEnv) return null;
+              const same = fromEnv.artifactId === toEnv.artifactId
+                        && fromEnv.version === toEnv.version
+                        && Array.isArray(toEnv.lineage)
+                        && toEnv.lineage.includes(e.from);
               const stroke = same ? "#5ec27e" : "#6aa9ff";
               const opacity = same ? 0.85 : 0.6;
               const marker = same ? "url(#proto-arrow-good)" : "url(#proto-arrow)";
@@ -109,7 +126,7 @@ function TopologySheet({ state, dispatch, getState }) {
             const env = envs[name];
             if (!env) return null;
             const hasDrift = drift(name);
-            const isDeploying = !!state.deploying[name];
+            const isDeploying = !!(state.deploying && state.deploying[name]);
             return (
               <EnvNodeCard key={name}
                            env={env}
@@ -174,6 +191,12 @@ function isSourceCandidatePath(path) {
 }
 
 function EnvNodeCard({ env, pos, hasDrift, isDeploying, repo, dispatch, getState }) {
+  // Defensive: if repo or env source isn't well-formed, render a minimal
+  // placeholder rather than crashing the whole sheet.
+  if (!repo || !repo.branches || !env || !env.source) {
+    console.warn("EnvNodeCard: degenerate inputs", { hasRepo: !!repo, env });
+    return null;
+  }
   const branchNames = Object.keys(repo.branches);
   const pathsOnBranch = Object.keys(repo.branches[env.source.branch] || {})
     .filter(isSourceCandidatePath)
