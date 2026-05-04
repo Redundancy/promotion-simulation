@@ -1170,6 +1170,7 @@ function DebriefScene({ state, dispatch }) {
 
 function GuideModal({ dispatch }) {
   const close = () => dispatch({ type: "HIDE_GUIDE" });
+  const [tab, setTab] = React.useState("overview");
 
   React.useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") close(); };
@@ -1177,10 +1178,15 @@ function GuideModal({ dispatch }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const tabs = [
+    { id: "overview",   label: "overview" },
+    { id: "approaches", label: "approaches to configuration" },
+  ];
+
   return (
     <div className="scrim fade-in" onClick={close} style={{ zIndex: 80 }}>
       <div className="lift" onClick={(e) => e.stopPropagation()}
-           style={{ width: 720, maxHeight: "85vh", background: "var(--panel)",
+           style={{ width: 760, maxHeight: "85vh", background: "var(--panel)",
                     border: "1px solid var(--border-strong)", borderRadius: 8,
                     boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
                     display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1195,10 +1201,46 @@ function GuideModal({ dispatch }) {
           <button className="btn ghost sm" onClick={close}>esc · close</button>
         </div>
 
+        <div style={{ display: "flex", gap: 0, padding: "0 16px",
+                      borderBottom: "1px solid var(--border)",
+                      background: "var(--panel-2)" }}>
+          {tabs.map((t) => {
+            const active = t.id === tab;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                      style={{
+                        appearance: "none", background: "transparent",
+                        border: 0, padding: "10px 14px",
+                        fontFamily: "var(--mono)", fontSize: 12,
+                        cursor: "pointer",
+                        color: active ? "var(--fg)" : "var(--fg-dim)",
+                        borderBottom: active
+                          ? "2px solid var(--accent, #7aa2ff)"
+                          : "2px solid transparent",
+                        marginBottom: -1,
+                      }}>
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
         <div style={{ padding: "18px 22px 22px", overflow: "auto", flex: 1,
                       fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6,
                       color: "var(--fg-dim)" }}>
 
+          {tab === "overview" && <GuideOverview />}
+          {tab === "approaches" && <GuideApproaches />}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GuideOverview() {
+  return (
+    <>
           <GuideSection title="What this is">
             <p>You're a platform engineer. You inherit a small repo of configuration, a handful of environments, and some requirements. Your job is to get each environment into the state the requirements describe.</p>
             <p>This is a <em>simulation</em>, not a game. There's no score, no ranking, and no single right answer. Multiple strategies can satisfy the same requirements; the scenarios are designed so you can feel the trade-offs.</p>
@@ -1259,10 +1301,85 @@ function GuideModal({ dispatch }) {
               <li>Run <span className="mono">__reset()</span> in the browser console to nuke the current scenario's saved state.</li>
             </ul>
           </GuideSection>
+    </>
+  );
+}
 
-        </div>
-      </div>
-    </div>
+function GuideApproaches() {
+  return (
+    <>
+      <GuideSection title="Why this section exists">
+        <p>There's no single right way to organize configuration across environments. Real platform teams pick from a small toolbox of patterns and combine them. Each pattern has a sweet spot and a failure mode. This section sketches the common ones so you can recognize them in the scenarios — and reach for the right one when you build your own platform.</p>
+      </GuideSection>
+
+      <GuideSection title="1. One file per environment (flat)">
+        <p>The simplest thing that works: a file like <span className="mono">config/dev.json</span>, <span className="mono">config/staging.json</span>, <span className="mono">config/prod.json</span>. Each env's source points at its own file. Promotion is a <span className="mono">copy-file</span> from one to the next.</p>
+        <p><b>Sweet spot:</b> small services, few envs, values that genuinely differ in ad-hoc ways.</p>
+        <p><b>Failure mode:</b> shared values get duplicated. A change to a "global" default has to be edited in every file, and it's easy to forget one. Drift between envs becomes invisible.</p>
+      </GuideSection>
+
+      <GuideSection title="2. Layered config (defaults + overrides)">
+        <p>Split values across layers, most-general to most-specific, and merge at deploy time. Most-specific wins:</p>
+        <pre style={{ background: "var(--panel-2)", padding: 10, borderRadius: 4,
+                      fontSize: 12, overflow: "auto", margin: "6px 0" }}>
+{`defaults.json    →  applies to everything
+region/<r>.json  →  overrides for a region
+env/<name>.json  →  overrides for one env`}
+        </pre>
+        <p>A build script reads the layers and returns the merged object. Shared values live once, in <span className="mono">defaults.json</span>; per-env tweaks live in tiny override files.</p>
+        <p><b>Sweet spot:</b> multi-region or multi-tier systems where most config is shared and only a handful of values vary per env.</p>
+        <p><b>Failure mode:</b> "where does this value come from?" gets harder as layers grow. Override-of-an-override-of-a-default is hard to debug. Mitigated by keeping the merge order short and explicit.</p>
+        <p>See <span className="mono">s3-branch-per-env</span> for a worked example with four layers (defaults / region / datacenter / env).</p>
+      </GuideSection>
+
+      <GuideSection title="3. Branch per environment">
+        <p>Each env gets its own long-lived branch in the repo (<span className="mono">dev</span>, <span className="mono">staging</span>, <span className="mono">prod</span>). Each env's source points at the same path on its own branch — e.g. <span className="mono">dev:build.js</span>, <span className="mono">staging:build.js</span>, <span className="mono">prod:build.js</span>. Promotion is <span className="mono">copy-branch</span>: ship the entire branch state forward.</p>
+        <p><b>Sweet spot:</b> teams that want a strong audit trail per env (the branch IS the history of what's deployed there), and approvals on a branch boundary. Plays well with code review on the promotion step.</p>
+        <p><b>Failure mode:</b> branches drift if you hand-edit them out of order. The "correct" lineage requires discipline: edit dev, promote dev→staging, promote staging→prod. Hotfixes applied directly on prod are easy to lose on the next promotion.</p>
+        <p>See <span className="mono">s3-branch-per-env</span>.</p>
+      </GuideSection>
+
+      <GuideSection title="4. Single source of truth + derived envs">
+        <p>One file (or one set of files) lives on <span className="mono">main</span>. A build script derives each env's config from that source plus the env's <i>identity</i> (its name, tier, region, etc.). No per-env files at all — the env's identity attributes are the input that produces variation.</p>
+        <pre style={{ background: "var(--panel-2)", padding: 10, borderRadius: 4,
+                      fontSize: 12, overflow: "auto", margin: "6px 0" }}>
+{`// build.js
+const base = await api.readJson("config/base.json");
+return {
+  ...base,
+  logLevel: env.tier === "prod" ? "warn" : "debug",
+  hostname: \`\${base.serviceName}.\${env.name}.example.com\`,
+};`}
+        </pre>
+        <p><b>Sweet spot:</b> when env differences follow rules ("prod is warn, everything else is debug") rather than ad-hoc preferences. Drift becomes structurally impossible — there's only one file to edit.</p>
+        <p><b>Failure mode:</b> the build script becomes a god object. Any new "this one env is special" exception complicates the script. Mitigated by being honest: when an env is genuinely a snowflake, give it its own override file (mix with pattern 2).</p>
+      </GuideSection>
+
+      <GuideSection title="5. Derived (composed) values">
+        <p>Not a strategy on its own — a technique that combines with the others. Some config values are <i>derived</i> from other values: a hostname composed from <span className="mono">serviceName + env.name + region + rootDomain</span>; a feature-flag set computed from a version number; a connection string composed from host + port + database name.</p>
+        <p>Derived values belong in code (a build script), not in JSON. If you put them in JSON you'll forget to update one of them when an input changes; if you derive them, the formula is the source of truth and the value can't drift.</p>
+        <p><b>Failure mode:</b> wrong formula, wrong order of inputs, wrong separator. The diff banner highlights it, but the fix is in the script — not the data.</p>
+      </GuideSection>
+
+      <GuideSection title="6. Promotion with strict copy semantics">
+        <p>Independent of the file layout, the <i>promotion effect</i> shapes how state moves between envs. Two primitives:</p>
+        <ul>
+          <li><span className="mono">copy-file</span> — surgical: move one file to one location. Use when only one thing should change per promotion (e.g. version bump in <span className="mono">config/prod.json</span>).</li>
+          <li><span className="mono">copy-branch</span> — wholesale: ship every file from a branch onto another. Use when the unit of change is "everything that's been merged to the source branch since last promotion".</li>
+        </ul>
+        <p>An edge with no effects is a no-op promote. That's a valid choice — sometimes you want the promotion graph to express <i>which</i> envs can promote to which others, while leaving the actual move as a manual repo edit.</p>
+      </GuideSection>
+
+      <GuideSection title="Mixing and matching">
+        <p>Real platforms combine these. A common shape:</p>
+        <ul>
+          <li>Branch per env (pattern 3) for audit + approval boundaries.</li>
+          <li>Layered config (pattern 2) within each branch, so per-env overrides stay tiny.</li>
+          <li>Derived values (pattern 5) inside the build script, so hostnames and flag sets can't drift from their inputs.</li>
+        </ul>
+        <p>The simulator lets you build any combination. The scenarios showcase one pattern each, but nothing forces you to stay inside their starting layout — create branches, write build scripts, change effects, and try a different approach to the same goal.</p>
+      </GuideSection>
+    </>
   );
 }
 
