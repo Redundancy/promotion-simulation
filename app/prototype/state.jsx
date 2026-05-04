@@ -406,8 +406,22 @@ function reducer(state, action) {
       const appliedEffects = [];
 
       if (effects && effects.length > 0) {
-        // Apply scenario-declared effects.
+        // Apply scenario-declared effects. Each effect may carry an optional
+        // `when({ fromEnv, toEnv, state }) => bool` guard; if present and
+        // false, the effect is skipped (silently). Used by scenarios that
+        // declare multiple effects to cover several promotion strategies and
+        // want only the applicable one to fire based on where envs are
+        // currently sourcing from.
         for (const step of effects) {
+          if (typeof step.when === "function") {
+            let pass = false;
+            try {
+              pass = !!step.when({ fromEnv, toEnv, state: s2 });
+            } catch (e) {
+              console.warn(`promote effect "${step.kind}" when() threw`, e);
+            }
+            if (!pass) continue;
+          }
           try {
             s2 = applyEffect(s2, step);
             appliedEffects.push(step.kind);
