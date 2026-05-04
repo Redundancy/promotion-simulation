@@ -10,20 +10,9 @@
 
 const SCRIPT_TIMEOUT_MS = 3000;
 
-// Identity attributes passed to the script. Anything in the env state object
-// not in this blacklist is forwarded as part of `env`.
-const ENV_RUNTIME_FIELDS = new Set([
-  "source", "version", "artifactId", "lineage",
-  "lastDeploy", "deployedSource", "pendingFrom", "config",
-]);
-
-function envIdentity(envState) {
-  const out = {};
-  for (const [k, v] of Object.entries(envState)) {
-    if (!ENV_RUNTIME_FIELDS.has(k)) out[k] = v;
-  }
-  return out;
-}
+// envIdentity = data.jsx's envIdentityOf — same blacklist of runtime fields,
+// shared across runtime / api / state to avoid drift.
+const envIdentity = (envState) => window.envIdentityOf(envState);
 
 // Resolve an env's source — returns { ok, value, error, sourceText }.
 async function resolveEnv(getState, envName) {

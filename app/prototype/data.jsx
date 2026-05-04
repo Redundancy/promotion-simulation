@@ -78,6 +78,68 @@ function parseFileKey(key) {
   return { branch: key.slice(0, i), path: key.slice(i + 2) };
 }
 
+// Materialise the expected config for an env at a given version. Scenarios
+// can declare expected via either:
+//   - expectedConfigFor(envIdentity, version) => Json    (preferred)
+//   - expectedConfig: { [envName]: Json }                (literal fallback)
+//
+// version is normally the env's currently-deployed version (env.version) so
+// the displayed/checked target reflects "what should be true given the version
+// running here right now". A new application version reaching an env can shift
+// expected (see DESIGN.md §"Application versions" / §"Hotfixes").
+//
+// Returns null if no expected is declared.
+function materializeExpected(scenario, envIdentity, version) {
+  if (!scenario || !envIdentity) return null;
+  if (typeof scenario.expectedConfigFor === "function") {
+    try {
+      const r = scenario.expectedConfigFor(envIdentity, version);
+      return r === undefined ? null : r;
+    } catch (e) {
+      console.warn("expectedConfigFor threw", e);
+      return null;
+    }
+  }
+  if (scenario.expectedConfig && scenario.expectedConfig[envIdentity.name] !== undefined) {
+    return scenario.expectedConfig[envIdentity.name];
+  }
+  return null;
+}
+
+// Identity attributes vs runtime fields — runtime fields aren't part of an
+// env's "identity" passed to scenario authors. Shared with runtime.jsx
+// (envIdentity) and scenarios/api.jsx (env() projection).
+const ENV_RUNTIME_FIELDS = new Set([
+  "source", "version", "artifactId", "lineage",
+  "lastDeploy", "deployedSource", "pendingFrom", "config",
+]);
+
+function envIdentityOf(envState) {
+  const out = {};
+  for (const [k, v] of Object.entries(envState)) {
+    if (!ENV_RUNTIME_FIELDS.has(k)) out[k] = v;
+  }
+  return out;
+}
+
+// Subset deep-equal: every (key, value) in `expected` must be present and
+// deep-equal in `actual`. Extra keys in `actual` are fine. Returns the array
+// of expected keys whose values mismatch (or are absent in actual). Empty
+// array means "actual matches expected on every expected key".
+function mismatchedExpectedKeys(actual, expected) {
+  if (!expected || typeof expected !== "object" || Array.isArray(expected)) return [];
+  const out = [];
+  for (const k of Object.keys(expected)) {
+    const av = actual && typeof actual === "object" ? actual[k] : undefined;
+    if (JSON.stringify(av) !== JSON.stringify(expected[k])) out.push(k);
+  }
+  return out;
+}
+
+function deepEqualSubset(actual, expected) {
+  return mismatchedExpectedKeys(actual, expected).length === 0;
+}
+
 // Render the canonical envs.json text for a set of env definitions. Used by
 // the reducer when a source-remap action mutates the picker state.
 function renderEnvsJson(envs, envOrder) {
@@ -101,4 +163,7 @@ Object.assign(window, {
   // helpers
   parseConfig, isConfigPath, envForSourceLocation, fmtTime,
   fileKey, parseFileKey, renderEnvsJson,
+  // expected-config helpers (Phase A)
+  materializeExpected, envIdentityOf, ENV_RUNTIME_FIELDS,
+  mismatchedExpectedKeys, deepEqualSubset,
 });

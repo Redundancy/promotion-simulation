@@ -5,34 +5,28 @@
 //
 // Shape passed to a directive's check() function:
 //   {
-//     env(name)        => { name, tier, region, datacenter?, ...identityAttrs,
-//                           version, artifactId, lineage,
-//                           source: { branch, path },
-//                           lastDeploy, pendingFrom,
-//                           config: Json | null,    // last-deployed resolved config
-//                         } | null
-//     source(envName)  => parsed JSON of the file the env's source points at,
-//                         or null on parse error / missing file. Useful for
-//                         JSON sources only; .js sources return null.
-//     file(branch, path) => raw text of the file, or null
-//     branches()       => string[]   // available branch names
-//     trace            => readonly trace event array
-//
-// Note: env(name).config is the resolved config from the most recent deploy.
-// For JS sources, this is what the script returned. For JSON sources, this is
-// the parsed source as of the deploy. It is null until the first deploy.
+//     env(name)            => { name, tier, region, datacenter?, ...identityAttrs,
+//                               version, artifactId, lineage,
+//                               source: { branch, path },
+//                               lastDeploy, pendingFrom,
+//                               config: Json | null,
+//                             } | null
+//     expected(envName)    => Json | null — the scenario's expected config for
+//                              the env at its currently-deployed version. Pulls
+//                              from scenario.expectedConfigFor(env, version) if
+//                              defined, else from scenario.expectedConfig[name].
+//     deepEqualSubset(a,b) => bool — every key in b deep-equals in a (extras OK)
+//     source(envName)      => parsed JSON of the file the env's source points
+//                              at. Useful for JSON sources only; .js sources
+//                              return null.
+//     file(branch, path)   => raw text of the file, or null
+//     branches()           => string[]
+//     trace                => readonly trace event array
 
 function makeDirectiveAPI(state) {
   const repo = state.repo;
   const envs = state.envs;
-
-  // Identity attributes vs runtime fields — runtime fields are always
-  // exposed by name, identity attributes are passed through whatever the
-  // scenario put on the env object.
-  const RUNTIME_FIELDS = new Set([
-    "source", "version", "artifactId", "lineage",
-    "lastDeploy", "deployedSource", "pendingFrom", "config",
-  ]);
+  const scenario = state.scenarioId ? window.getScenario(state.scenarioId) : null;
 
   const env = (name) => {
     const e = envs[name];
@@ -44,16 +38,12 @@ function makeDirectiveAPI(state) {
       source: Object.freeze({ branch: e.source.branch, path: e.source.path }),
       lastDeploy: e.lastDeploy,
       pendingFrom: e.pendingFrom ? Object.freeze({ ...e.pendingFrom }) : null,
-      // Deep-freeze the config so directives can't mutate it.
       config: e.config !== null && e.config !== undefined
         ? JSON.parse(JSON.stringify(e.config))
         : null,
     };
-    // Identity attributes (name, tier, region, datacenter, ...) come from
-    // whatever the scenario put on the env object. Pass through everything
-    // not in RUNTIME_FIELDS.
     for (const [k, v] of Object.entries(e)) {
-      if (!RUNTIME_FIELDS.has(k)) out[k] = v;
+      if (!window.ENV_RUNTIME_FIELDS.has(k)) out[k] = v;
     }
     return Object.freeze(out);
   };
@@ -77,10 +67,19 @@ function makeDirectiveAPI(state) {
     }
   };
 
+  const expected = (envName) => {
+    const e = envs[envName];
+    if (!e || !scenario) return null;
+    const r = window.materializeExpected(scenario, window.envIdentityOf(e), e.version);
+    return r === null || r === undefined ? null : JSON.parse(JSON.stringify(r));
+  };
+
   const branches = () => Object.keys(repo.branches);
 
   return Object.freeze({
     env,
+    expected,
+    deepEqualSubset: window.deepEqualSubset,
     source,
     file,
     branches,

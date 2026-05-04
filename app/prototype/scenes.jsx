@@ -305,11 +305,15 @@ function ConfigPanes({ env, sourceText, isJsSource, getState }) {
     ? { ok: true, value: env.config }
     : { empty: true };
 
-  // Pull the scenario's expected config for this env.
+  // Pull the scenario's expected config for this env at its current version.
+  // materializeExpected handles both expectedConfigFor(env, version) and the
+  // legacy literal expectedConfig[name] forms.
   const scenarioId = getState ? getState().scenarioId : null;
   const scenario = scenarioId ? window.getScenario(scenarioId) : null;
-  const expectedValue = scenario?.expectedConfig?.[env?.name];
-  const expected = expectedValue !== undefined
+  const expectedValue = env && scenario
+    ? window.materializeExpected(scenario, window.envIdentityOf(env), env.version)
+    : null;
+  const expected = expectedValue !== null && expectedValue !== undefined
     ? { ok: true, value: expectedValue }
     : { undeclared: true };
 
@@ -636,13 +640,14 @@ function WorkspaceScene({ state, dispatch, getState }) {
         dispatch({ type: "TOGGLE_TOPOLOGY" });
       }
       if (e.key === "Escape") {
-        if (state.confirm) dispatch({ type: "DISMISS_CONFIRM" });
+        if (state.pendingHotfix) dispatch({ type: "DISMISS_HOTFIX_NOTIFICATION" });
+        else if (state.confirm) dispatch({ type: "DISMISS_CONFIRM" });
         else if (state.topologyOpen) dispatch({ type: "TOGGLE_TOPOLOGY" });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, state.confirm, state.topologyOpen]);
+  }, [dispatch, state.confirm, state.topologyOpen, state.pendingHotfix]);
 
   return (
     <div className="cb" style={{ position: "relative" }}>
@@ -697,6 +702,7 @@ function WorkspaceScene({ state, dispatch, getState }) {
 
       {state.topologyOpen && <window.TopologySheet state={state} dispatch={dispatch} getState={getState} />}
       {state.confirm && <window.ConfirmDialog confirm={state.confirm} dispatch={dispatch} state={state} getState={getState} />}
+      {state.pendingHotfix && <window.HotfixModal hotfix={state.pendingHotfix} state={state} dispatch={dispatch} />}
     </div>
   );
 }

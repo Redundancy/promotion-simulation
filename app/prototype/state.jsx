@@ -61,6 +61,8 @@ function emptyState() {
     dirty: {},
     envs: {},
     deploying: {},
+    firedTriggers: [],   // ids of scenario triggers that have already fired
+    pendingHotfix: null, // hotfix awaiting participant acknowledgement (modal)
     activeFile: null,
     openFiles: [],
     topologyOpen: false,
@@ -372,8 +374,28 @@ function reducer(state, action) {
       const toEnv = state.envs[action.to];
       if (!fromEnv || !toEnv) return state;
 
-      // Look up scenario-declared effects on the edge.
       const sc = state.scenarioId ? window.getScenario(state.scenarioId) : null;
+
+      // Gating: refuse to promote if the source env's deployed config doesn't
+      // match the scenario's expected config for its currently-deployed
+      // version. Subset match — extras in env.config are fine. If no expected
+      // is declared, no gating.
+      const fromExpected = sc
+        ? window.materializeExpected(sc, window.envIdentityOf(fromEnv), fromEnv.version)
+        : null;
+      if (fromExpected) {
+        const blocking = window.mismatchedExpectedKeys(fromEnv.config, fromExpected);
+        if (blocking.length > 0) {
+          return appendTrace(state, {
+            kind: "promote",
+            text: `promote ${action.from} → ${action.to} ✗ blocked — ${action.from}.config doesn't match expected (${blocking.join(", ")})`,
+            from: action.from, to: action.to,
+            error: true, blocked: true, blockedKeys: blocking,
+          });
+        }
+      }
+
+      // Look up scenario-declared effects on the edge.
       const edge = (sc?.promoteEdges || []).find((e) => e.from === action.from && e.to === action.to);
       const effects = edge?.effects;
 
@@ -457,6 +479,56 @@ function reducer(state, action) {
       return { ...emptyState(), scene: "intro" };
     }
 
+    case "INJECT_HOTFIX": {
+      // Out-of-band version + config-patch landing in an env's state.
+      // Matches DESIGN.md §"Hotfixes": "the simulation drops a version
+      // directly into an env's state". No repo files are touched — that's
+      // the lesson; the hotfix's intent only exists in env state until the
+      // participant persists it into the repo.
+      const env = state.envs[action.env];
+      if (!env) return state;
+      const newConfig = (env.config && typeof env.config === "object" && !Array.isArray(env.config))
+        ? { ...env.config, ...action.configPatch, appVersion: action.version }
+        : { ...action.configPatch, appVersion: action.version };
+      const newEnvs = {
+        ...state.envs,
+        [env.name]: {
+          ...env,
+          version: action.version,
+          artifactId: `${env.name}-hotfix-${action.version}-${Date.now()}`,
+          config: newConfig,
+          deployedSource: null,            // out-of-band: no source backing this state
+          lineage: [`hotfix:${action.version}`],
+          pendingFrom: null,
+          lastDeploy: Date.now(),
+        },
+      };
+      const pendingHotfix = {
+        env: env.name,
+        version: action.version,
+        configPatch: action.configPatch || {},
+        message: action.message || null,
+        at: Date.now(),
+      };
+      const s2 = appendTrace({ ...state, envs: newEnvs, pendingHotfix }, {
+        kind: "hotfix",
+        text: `🚨 hotfix ${action.version} landed in ${env.name} (out of band)` +
+              (action.message ? ` — ${action.message}` : ""),
+        env: env.name, version: action.version,
+      });
+      return recomputeDirectives(s2);
+    }
+
+    case "DISMISS_HOTFIX_NOTIFICATION":
+      return { ...state, pendingHotfix: null };
+
+    case "MARK_TRIGGER_FIRED": {
+      if (!action.id) return state;
+      const fired = state.firedTriggers || [];
+      if (fired.includes(action.id)) return state;
+      return { ...state, firedTriggers: [...fired, action.id] };
+    }
+
     case "HYDRATE": {
       // Re-fill any fields that aren't in the saved state (e.g. transient
       // fields stripped at persist-time, or fields added in newer code).
@@ -471,11 +543,84 @@ function reducer(state, action) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Trigger runner. Wraps the reducer so scenario-declared triggers fire
+// after each action they match. One-shot enforcement via state.firedTriggers
+// (ids of triggers already fired).
+//
+// A trigger:
+//   { id: string, when({state, action}) => bool, effect: { kind, ... }, once?: bool }
+//
+// Effect kinds:
+//   - "inject-hotfix": dispatches INJECT_HOTFIX { env, version, configPatch, message? }
+//
+// The trigger-issued effect action goes back through reducerWithTriggers
+// recursively (depth-capped) so cascades work but runaway is prevented.
+// ─────────────────────────────────────────────────────────────────────
+
+const TRIGGER_DEPTH_CAP = 8;
+
+function effectToAction(effect) {
+  switch (effect.kind) {
+    case "inject-hotfix":
+      return {
+        type: "INJECT_HOTFIX",
+        env: effect.env,
+        version: effect.version,
+        configPatch: effect.configPatch || {},
+        message: effect.message,
+      };
+    default:
+      console.warn("unknown trigger effect kind:", effect.kind);
+      return null;
+  }
+}
+
+function applyTriggers(state, originalAction, depth) {
+  if (depth >= TRIGGER_DEPTH_CAP) return state;
+  if (!state.scenarioId) return state;
+  const sc = window.getScenario(state.scenarioId);
+  const triggers = sc?.triggers || [];
+  if (triggers.length === 0) return state;
+  let s = state;
+  for (const t of triggers) {
+    if (!t || !t.id) continue;
+    if ((s.firedTriggers || []).includes(t.id)) continue;
+    let matched = false;
+    try {
+      matched = !!t.when({ state: s, action: originalAction });
+    } catch (e) {
+      console.warn("trigger.when threw", t.id, e);
+    }
+    if (!matched) continue;
+    // Mark fired BEFORE dispatching the effect so re-entrant evaluation
+    // doesn't re-fire the same trigger.
+    s = reducer(s, { type: "MARK_TRIGGER_FIRED", id: t.id });
+    const effectAction = effectToAction(t.effect);
+    if (effectAction) {
+      s = reducer(s, effectAction);
+      // The effect action may itself match other triggers — recurse.
+      s = applyTriggers(s, effectAction, depth + 1);
+    }
+  }
+  return s;
+}
+
+function reducerWithTriggers(state, action) {
+  // MARK_TRIGGER_FIRED and effect-actions are themselves dispatched through
+  // here recursively from applyTriggers; they shouldn't re-evaluate triggers
+  // for themselves (applyTriggers handles cascade explicitly).
+  if (action.type === "MARK_TRIGGER_FIRED") return reducer(state, action);
+  const next = reducer(state, action);
+  if (next === state) return state;  // no-op actions
+  return applyTriggers(next, action, 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Hook + persistence
 // ─────────────────────────────────────────────────────────────────────
 
 function useStore() {
-  const [state, dispatch] = React.useReducer(reducer, null, () => emptyState());
+  const [state, dispatch] = React.useReducer(reducerWithTriggers, null, () => emptyState());
   const hydrated = React.useRef(false);
   // Latest-state ref so async helpers (deployEnv) can read the up-to-date
   // state instead of a stale closure capture.

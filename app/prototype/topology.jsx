@@ -84,38 +84,59 @@ function TopologySheet({ state, dispatch, getState }) {
               const a = nodes[e.from], b = nodes[e.to];
               const fromEnv = envs[e.from], toEnv = envs[e.to];
               if (!a || !b || !fromEnv || !toEnv) return null;
+
+              // Gating: blocked if from-env's deployed config doesn't satisfy
+              // its expected (per scenario.expectedConfigFor / expectedConfig).
+              const fromExpected = sc
+                ? window.materializeExpected(sc, window.envIdentityOf(fromEnv), fromEnv.version)
+                : null;
+              const blockedKeys = fromExpected
+                ? window.mismatchedExpectedKeys(fromEnv.config, fromExpected)
+                : [];
+              const blocked = blockedKeys.length > 0;
+
               const same = fromEnv.artifactId === toEnv.artifactId
                         && fromEnv.version === toEnv.version
                         && Array.isArray(toEnv.lineage)
                         && toEnv.lineage.includes(e.from);
-              const stroke = same ? "#5ec27e" : "#6aa9ff";
-              const opacity = same ? 0.85 : 0.6;
-              const marker = same ? "url(#proto-arrow-good)" : "url(#proto-arrow)";
+              const stroke = blocked ? "var(--fg-faint)" : (same ? "#5ec27e" : "#6aa9ff");
+              const opacity = blocked ? 0.35 : (same ? 0.85 : 0.6);
+              const marker = blocked ? null : (same ? "url(#proto-arrow-good)" : "url(#proto-arrow)");
               const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 22;
               const onPromote = () => {
+                if (blocked) return;
                 dispatch({ type: "REQUEST_CONFIRM", payload: {
                   kind: "promote", from: e.from, to: e.to,
                   fromVersion: envs[e.from].version,
                   toVersion: envs[e.to].version,
                 }});
               };
+              const labelText = blocked ? "blocked" : "promote ▸";
+              const labelWidth = 76;
+              const tooltip = blocked
+                ? `${e.from}.config doesn't match expected:\n• ${blockedKeys.join("\n• ")}`
+                : `promote ${e.from} → ${e.to}`;
               return (
-                <g key={e.id} className="promote-edge" style={{ cursor: "pointer" }}
+                <g key={e.id} className="promote-edge"
+                   style={{ cursor: blocked ? "not-allowed" : "pointer" }}
                    onClick={onPromote}>
+                  <title>{tooltip}</title>
                   <path d={`M${a.x + 64},${a.y} Q${mx},${my} ${b.x - 64},${b.y}`}
                         fill="none" stroke="transparent" strokeWidth="22" />
                   <path d={`M${a.x + 64},${a.y} Q${mx},${my} ${b.x - 64},${b.y}`}
                         fill="none" stroke={stroke} strokeOpacity={opacity}
-                        strokeWidth="1.6" markerEnd={marker}
+                        strokeWidth={blocked ? "1.2" : "1.6"}
+                        strokeDasharray={blocked ? "4 3" : undefined}
+                        markerEnd={marker}
                         style={{ pointerEvents: "none" }} />
-                  <rect x={mx - 38} y={my - 20} width="76" height="20" rx="10"
-                        fill="var(--panel-2)" stroke={stroke} strokeOpacity="0.5" />
+                  <rect x={mx - labelWidth/2} y={my - 20} width={labelWidth} height="20" rx="10"
+                        fill="var(--panel-2)" stroke={stroke} strokeOpacity={blocked ? 0.4 : 0.5} />
                   <text x={mx} y={my - 6} textAnchor="middle"
                         fill={stroke} fontFamily="var(--mono)"
                         fontSize="10.5" letterSpacing="0.06em"
                         fontWeight="600"
                         style={{ pointerEvents: "none", textTransform: "uppercase" }}>
-                    promote ▸
+                    {labelText}
                   </text>
                 </g>
               );
@@ -378,4 +399,84 @@ function ConfirmDialog({ confirm, dispatch, state, getState }) {
   );
 }
 
-Object.assign(window, { TopologySheet, ConfirmDialog });
+// ─────────────────────────────────────────────────────────────────────
+// HotfixModal — pops up when a scenario trigger drops a hotfix into an env
+// out of band. The participant has to dismiss it explicitly, so they can't
+// miss the fact that the world changed under them. Surfaces the version,
+// the env, the config patch (so they can see exactly what landed), and the
+// scenario-authored explanatory message.
+// ─────────────────────────────────────────────────────────────────────
+
+function HotfixModal({ hotfix, state, dispatch }) {
+  if (!hotfix) return null;
+  const close = () => dispatch({ type: "DISMISS_HOTFIX_NOTIFICATION" });
+  const env = state.envs[hotfix.env];
+
+  return (
+    <div className="scrim fade-in" onClick={close} style={{ zIndex: 70 }}>
+      <div className="lift" onClick={(e) => e.stopPropagation()}
+           style={{ width: 520, background: "var(--panel)",
+                    border: "1px solid var(--bad)", borderRadius: 8,
+                    boxShadow: "0 24px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(229,115,115,0.25)" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)",
+                      display: "flex", alignItems: "center", gap: 10,
+                      background: "rgba(229,115,115,0.06)" }}>
+          <span style={{ fontSize: 16 }}>🚨</span>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600,
+                         color: "var(--bad)", letterSpacing: "0.04em" }}>
+            hotfix landed out of band
+          </span>
+        </div>
+
+        <div style={{ padding: "16px 18px", fontFamily: "var(--mono)",
+                      fontSize: 12, color: "var(--fg-dim)", lineHeight: 1.7 }}>
+          <div style={{ marginBottom: 12, color: "var(--fg)" }}>
+            <span style={{ color: "var(--fg-faint)" }}>The simulation just dropped </span>
+            <span style={{ color: "#ce9178" }}>{hotfix.version}</span>
+            <span style={{ color: "var(--fg-faint)" }}> directly into </span>
+            <span style={{ color: "var(--fg)" }}>{hotfix.env}</span>
+            <span style={{ color: "var(--fg-faint)" }}>'s state. No file in the repo changed — this is an out-of-band event.</span>
+          </div>
+
+          {hotfix.message && (
+            <div style={{ padding: "8px 10px", marginBottom: 12,
+                          background: "rgba(229,115,115,0.06)",
+                          border: "1px solid rgba(229,115,115,0.25)", borderRadius: 3,
+                          color: "var(--fg)", fontSize: 12 }}>
+              {hotfix.message}
+            </div>
+          )}
+
+          <div style={{ marginBottom: 6, color: "var(--fg-faint)",
+                        fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+            config patch applied to {hotfix.env}
+          </div>
+          <pre style={{ margin: 0, padding: "8px 10px",
+                        background: "var(--bg)", border: "1px solid var(--border)",
+                        borderRadius: 3, fontSize: 11, lineHeight: 1.5,
+                        color: "var(--fg-dim)", whiteSpace: "pre-wrap",
+                        maxHeight: 160, overflow: "auto" }}>
+            {JSON.stringify({ appVersion: hotfix.version, ...hotfix.configPatch }, null, 2)}
+          </pre>
+
+          {env && (
+            <div style={{ marginTop: 12, fontSize: 11, color: "var(--fg-faint)" }}>
+              {hotfix.env} is now at <span style={{ color: "var(--fg-dim)" }}>{env.version}</span>
+              {" with lineage "}
+              <span style={{ color: "var(--fg-dim)" }}>[{(env.lineage || []).join(", ")}]</span>.
+              The hotfix's intent only lives in {hotfix.env}'s state until you persist
+              it into a repo file your promotes will carry forward.
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)",
+                      display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button className="btn primary" onClick={close}>got it</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { TopologySheet, ConfirmDialog, HotfixModal });
