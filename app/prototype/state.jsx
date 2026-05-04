@@ -61,8 +61,9 @@ function emptyState() {
     dirty: {},
     envs: {},
     deploying: {},
-    firedTriggers: [],   // ids of scenario triggers that have already fired
-    pendingHotfix: null, // hotfix awaiting participant acknowledgement (modal)
+    firedTriggers: [],         // ids of scenario triggers that have already fired
+    activeRequirements: [],    // ids of in-force scenario requirements (drives expectedConfigFor)
+    pendingAlert: null,        // alert awaiting participant acknowledgement (modal)
     activeFile: null,
     openFiles: [],
     topologyOpen: false,
@@ -381,7 +382,8 @@ function reducer(state, action) {
       // version. Subset match — extras in env.config are fine. If no expected
       // is declared, no gating.
       const fromExpected = sc
-        ? window.materializeExpected(sc, window.envIdentityOf(fromEnv), fromEnv.version)
+        ? window.materializeExpected(sc, window.envIdentityOf(fromEnv), fromEnv.version,
+                                     window.expectedCtxFromState(state))
         : null;
       if (fromExpected) {
         const blocking = window.mismatchedExpectedKeys(fromEnv.config, fromExpected);
@@ -479,48 +481,31 @@ function reducer(state, action) {
       return { ...emptyState(), scene: "intro" };
     }
 
-    case "INJECT_HOTFIX": {
-      // Out-of-band version + config-patch landing in an env's state.
-      // Matches DESIGN.md §"Hotfixes": "the simulation drops a version
-      // directly into an env's state". No repo files are touched — that's
-      // the lesson; the hotfix's intent only exists in env state until the
-      // participant persists it into the repo.
-      const env = state.envs[action.env];
-      if (!env) return state;
-      const newConfig = (env.config && typeof env.config === "object" && !Array.isArray(env.config))
-        ? { ...env.config, ...action.configPatch, appVersion: action.version }
-        : { ...action.configPatch, appVersion: action.version };
-      const newEnvs = {
-        ...state.envs,
-        [env.name]: {
-          ...env,
-          version: action.version,
-          artifactId: `${env.name}-hotfix-${action.version}-${Date.now()}`,
-          config: newConfig,
-          deployedSource: null,            // out-of-band: no source backing this state
-          lineage: [`hotfix:${action.version}`],
-          pendingFrom: null,
-          lastDeploy: Date.now(),
-        },
-      };
-      const pendingHotfix = {
-        env: env.name,
-        version: action.version,
-        configPatch: action.configPatch || {},
-        message: action.message || null,
-        at: Date.now(),
-      };
-      const s2 = appendTrace({ ...state, envs: newEnvs, pendingHotfix }, {
-        kind: "hotfix",
-        text: `🚨 hotfix ${action.version} landed in ${env.name} (out of band)` +
-              (action.message ? ` — ${action.message}` : ""),
-        env: env.name, version: action.version,
+    case "ANNOUNCE_REQUIREMENT": {
+      // Activates a scenario requirement (e.g. a security advisory). The
+      // simulator does NOT mutate any env directly — it just adds the
+      // requirement id to state.activeRequirements, which the scenario's
+      // expectedConfigFor consults via its ctx arg. The participant then
+      // does the operational work (edit files, deploy) to satisfy the new
+      // expected. A modal pops up so they can't miss the event.
+      if (!action.id) return state;
+      const reqs = state.activeRequirements || [];
+      const newReqs = reqs.includes(action.id) ? reqs : [...reqs, action.id];
+      const pendingAlert = action.alert
+        ? { ...action.alert, requirementId: action.id, at: Date.now() }
+        : null;
+      const s2 = appendTrace({ ...state, activeRequirements: newReqs, pendingAlert }, {
+        kind: "advisory",
+        text: action.alert?.title
+          ? `⚠ ${action.alert.title}`
+          : `requirement ${action.id} active`,
+        advisoryId: action.id,
       });
       return recomputeDirectives(s2);
     }
 
-    case "DISMISS_HOTFIX_NOTIFICATION":
-      return { ...state, pendingHotfix: null };
+    case "DISMISS_ALERT":
+      return { ...state, pendingAlert: null };
 
     case "MARK_TRIGGER_FIRED": {
       if (!action.id) return state;
@@ -561,13 +546,11 @@ const TRIGGER_DEPTH_CAP = 8;
 
 function effectToAction(effect) {
   switch (effect.kind) {
-    case "inject-hotfix":
+    case "announce-requirement":
       return {
-        type: "INJECT_HOTFIX",
-        env: effect.env,
-        version: effect.version,
-        configPatch: effect.configPatch || {},
-        message: effect.message,
+        type: "ANNOUNCE_REQUIREMENT",
+        id: effect.id,
+        alert: effect.alert || null,
       };
     default:
       console.warn("unknown trigger effect kind:", effect.kind);

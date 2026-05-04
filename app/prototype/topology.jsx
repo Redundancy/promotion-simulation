@@ -88,7 +88,8 @@ function TopologySheet({ state, dispatch, getState }) {
               // Gating: blocked if from-env's deployed config doesn't satisfy
               // its expected (per scenario.expectedConfigFor / expectedConfig).
               const fromExpected = sc
-                ? window.materializeExpected(sc, window.envIdentityOf(fromEnv), fromEnv.version)
+                ? window.materializeExpected(sc, window.envIdentityOf(fromEnv), fromEnv.version,
+                                             window.expectedCtxFromState(state))
                 : null;
               const blockedKeys = fromExpected
                 ? window.mismatchedExpectedKeys(fromEnv.config, fromExpected)
@@ -400,72 +401,81 @@ function ConfirmDialog({ confirm, dispatch, state, getState }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// HotfixModal — pops up when a scenario trigger drops a hotfix into an env
-// out of band. The participant has to dismiss it explicitly, so they can't
-// miss the fact that the world changed under them. Surfaces the version,
-// the env, the config patch (so they can see exactly what landed), and the
-// scenario-authored explanatory message.
+// SecurityAlertModal — pops up when a scenario trigger announces a new
+// requirement (e.g. a security advisory). The simulator does NOT mutate
+// any env directly — the participant has to do the operational work to
+// satisfy the new expected. The modal explains:
+//   - what was published / why this is happening (scenario-authored body)
+//   - what config is required, and where (scenario-authored)
+//   - any forward-looking notes (e.g. "v1.1.0 still requires this value")
+// Dismissed via "got it" or Esc.
+//
+// Alert shape (from scenario.triggers[].effect.alert):
+//   {
+//     title: string,
+//     body: string,
+//     requires?: string,        // human-readable description of the required config
+//     forward?: string,         // e.g. "v1.1.0 still requires this value"
+//     severity?: "security"     // styling hint; default "security"
+//   }
 // ─────────────────────────────────────────────────────────────────────
 
-function HotfixModal({ hotfix, state, dispatch }) {
-  if (!hotfix) return null;
-  const close = () => dispatch({ type: "DISMISS_HOTFIX_NOTIFICATION" });
-  const env = state.envs[hotfix.env];
+function SecurityAlertModal({ alert, dispatch }) {
+  if (!alert) return null;
+  const close = () => dispatch({ type: "DISMISS_ALERT" });
 
   return (
     <div className="scrim fade-in" onClick={close} style={{ zIndex: 70 }}>
       <div className="lift" onClick={(e) => e.stopPropagation()}
-           style={{ width: 520, background: "var(--panel)",
+           style={{ width: 540, background: "var(--panel)",
                     border: "1px solid var(--bad)", borderRadius: 8,
                     boxShadow: "0 24px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(229,115,115,0.25)" }}>
         <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)",
                       display: "flex", alignItems: "center", gap: 10,
                       background: "rgba(229,115,115,0.06)" }}>
           <span style={{ fontSize: 16 }}>🚨</span>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600,
-                         color: "var(--bad)", letterSpacing: "0.04em" }}>
-            hotfix landed out of band
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 600,
+                         color: "var(--bad)", letterSpacing: "0.14em",
+                         textTransform: "uppercase" }}>
+            security advisory
+          </span>
+          <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 12,
+                         color: "var(--fg)", fontWeight: 600 }}>
+            {alert.title}
           </span>
         </div>
 
         <div style={{ padding: "16px 18px", fontFamily: "var(--mono)",
                       fontSize: 12, color: "var(--fg-dim)", lineHeight: 1.7 }}>
-          <div style={{ marginBottom: 12, color: "var(--fg)" }}>
-            <span style={{ color: "var(--fg-faint)" }}>The simulation just dropped </span>
-            <span style={{ color: "#ce9178" }}>{hotfix.version}</span>
-            <span style={{ color: "var(--fg-faint)" }}> directly into </span>
-            <span style={{ color: "var(--fg)" }}>{hotfix.env}</span>
-            <span style={{ color: "var(--fg-faint)" }}>'s state. No file in the repo changed — this is an out-of-band event.</span>
-          </div>
-
-          {hotfix.message && (
-            <div style={{ padding: "8px 10px", marginBottom: 12,
-                          background: "rgba(229,115,115,0.06)",
-                          border: "1px solid rgba(229,115,115,0.25)", borderRadius: 3,
-                          color: "var(--fg)", fontSize: 12 }}>
-              {hotfix.message}
+          {alert.body && (
+            <div style={{ marginBottom: 14, color: "var(--fg)" }}>
+              {alert.body}
             </div>
           )}
 
-          <div style={{ marginBottom: 6, color: "var(--fg-faint)",
-                        fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-            config patch applied to {hotfix.env}
-          </div>
-          <pre style={{ margin: 0, padding: "8px 10px",
-                        background: "var(--bg)", border: "1px solid var(--border)",
-                        borderRadius: 3, fontSize: 11, lineHeight: 1.5,
-                        color: "var(--fg-dim)", whiteSpace: "pre-wrap",
-                        maxHeight: 160, overflow: "auto" }}>
-            {JSON.stringify({ appVersion: hotfix.version, ...hotfix.configPatch }, null, 2)}
-          </pre>
+          {alert.requires && (
+            <>
+              <div style={{ marginBottom: 6, color: "var(--fg-faint)",
+                            fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                required
+              </div>
+              <pre style={{ margin: 0, padding: "8px 10px",
+                            background: "var(--bg)", border: "1px solid var(--border)",
+                            borderRadius: 3, fontSize: 11.5, lineHeight: 1.5,
+                            color: "#ce9178", whiteSpace: "pre-wrap",
+                            maxHeight: 160, overflow: "auto" }}>
+                {alert.requires}
+              </pre>
+            </>
+          )}
 
-          {env && (
-            <div style={{ marginTop: 12, fontSize: 11, color: "var(--fg-faint)" }}>
-              {hotfix.env} is now at <span style={{ color: "var(--fg-dim)" }}>{env.version}</span>
-              {" with lineage "}
-              <span style={{ color: "var(--fg-dim)" }}>[{(env.lineage || []).join(", ")}]</span>.
-              The hotfix's intent only lives in {hotfix.env}'s state until you persist
-              it into a repo file your promotes will carry forward.
+          {alert.forward && (
+            <div style={{ marginTop: 14, padding: "8px 10px",
+                          background: "rgba(224,183,92,0.08)",
+                          border: "1px solid rgba(224,183,92,0.25)", borderRadius: 3,
+                          fontSize: 11.5, color: "var(--fg-dim)" }}>
+              <span style={{ color: "var(--warn)", fontWeight: 600, marginRight: 6 }}>note</span>
+              {alert.forward}
             </div>
           )}
         </div>
@@ -479,4 +489,4 @@ function HotfixModal({ hotfix, state, dispatch }) {
   );
 }
 
-Object.assign(window, { TopologySheet, ConfirmDialog, HotfixModal });
+Object.assign(window, { TopologySheet, ConfirmDialog, SecurityAlertModal });

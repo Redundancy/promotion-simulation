@@ -311,7 +311,8 @@ function ConfigPanes({ env, sourceText, isJsSource, getState }) {
   const scenarioId = getState ? getState().scenarioId : null;
   const scenario = scenarioId ? window.getScenario(scenarioId) : null;
   const expectedValue = env && scenario
-    ? window.materializeExpected(scenario, window.envIdentityOf(env), env.version)
+    ? window.materializeExpected(scenario, window.envIdentityOf(env), env.version,
+                                 window.expectedCtxFromState(getState ? getState() : null))
     : null;
   const expected = expectedValue !== null && expectedValue !== undefined
     ? { ok: true, value: expectedValue }
@@ -640,14 +641,14 @@ function WorkspaceScene({ state, dispatch, getState }) {
         dispatch({ type: "TOGGLE_TOPOLOGY" });
       }
       if (e.key === "Escape") {
-        if (state.pendingHotfix) dispatch({ type: "DISMISS_HOTFIX_NOTIFICATION" });
+        if (state.pendingAlert) dispatch({ type: "DISMISS_ALERT" });
         else if (state.confirm) dispatch({ type: "DISMISS_CONFIRM" });
         else if (state.topologyOpen) dispatch({ type: "TOGGLE_TOPOLOGY" });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [dispatch, state.confirm, state.topologyOpen, state.pendingHotfix]);
+  }, [dispatch, state.confirm, state.topologyOpen, state.pendingAlert]);
 
   return (
     <div className="cb" style={{ position: "relative" }}>
@@ -702,7 +703,7 @@ function WorkspaceScene({ state, dispatch, getState }) {
 
       {state.topologyOpen && <window.TopologySheet state={state} dispatch={dispatch} getState={getState} />}
       {state.confirm && <window.ConfirmDialog confirm={state.confirm} dispatch={dispatch} state={state} getState={getState} />}
-      {state.pendingHotfix && <window.HotfixModal hotfix={state.pendingHotfix} state={state} dispatch={dispatch} />}
+      {state.pendingAlert && <window.SecurityAlertModal alert={state.pendingAlert} dispatch={dispatch} />}
     </div>
   );
 }

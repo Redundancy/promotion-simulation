@@ -80,20 +80,24 @@ function parseFileKey(key) {
 
 // Materialise the expected config for an env at a given version. Scenarios
 // can declare expected via either:
-//   - expectedConfigFor(envIdentity, version) => Json    (preferred)
-//   - expectedConfig: { [envName]: Json }                (literal fallback)
+//   - expectedConfigFor(envIdentity, version, ctx) => Json    (preferred)
+//   - expectedConfig: { [envName]: Json }                     (literal fallback)
 //
-// version is normally the env's currently-deployed version (env.version) so
-// the displayed/checked target reflects "what should be true given the version
-// running here right now". A new application version reaching an env can shift
-// expected (see DESIGN.md §"Application versions" / §"Hotfixes").
+// `version` is normally the env's currently-deployed version (env.version),
+// so expected reflects "what should be true given the version running here
+// right now".
+//
+// `ctx` carries cross-env scenario state the function may want to consult —
+// chiefly `activeRequirements` (ids of in-force scenario requirements like
+// security advisories that flip on additional config expectations).
 //
 // Returns null if no expected is declared.
-function materializeExpected(scenario, envIdentity, version) {
+function materializeExpected(scenario, envIdentity, version, ctx) {
   if (!scenario || !envIdentity) return null;
+  const safeCtx = ctx || { activeRequirements: [] };
   if (typeof scenario.expectedConfigFor === "function") {
     try {
-      const r = scenario.expectedConfigFor(envIdentity, version);
+      const r = scenario.expectedConfigFor(envIdentity, version, safeCtx);
       return r === undefined ? null : r;
     } catch (e) {
       console.warn("expectedConfigFor threw", e);
@@ -104,6 +108,14 @@ function materializeExpected(scenario, envIdentity, version) {
     return scenario.expectedConfig[envIdentity.name];
   }
   return null;
+}
+
+// Build the ctx object that materializeExpected and expectedConfigFor see.
+// Pulled out so all consumers stay in sync.
+function expectedCtxFromState(state) {
+  return {
+    activeRequirements: state?.activeRequirements || [],
+  };
 }
 
 // Identity attributes vs runtime fields — runtime fields aren't part of an
@@ -163,7 +175,7 @@ Object.assign(window, {
   // helpers
   parseConfig, isConfigPath, envForSourceLocation, fmtTime,
   fileKey, parseFileKey, renderEnvsJson,
-  // expected-config helpers (Phase A)
-  materializeExpected, envIdentityOf, ENV_RUNTIME_FIELDS,
+  // expected-config helpers
+  materializeExpected, expectedCtxFromState, envIdentityOf, ENV_RUNTIME_FIELDS,
   mismatchedExpectedKeys, deepEqualSubset,
 });

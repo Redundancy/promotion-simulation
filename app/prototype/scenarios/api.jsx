@@ -67,10 +67,11 @@ function makeDirectiveAPI(state) {
     }
   };
 
+  const expectedCtx = window.expectedCtxFromState(state);
   const expected = (envName) => {
     const e = envs[envName];
     if (!e || !scenario) return null;
-    const r = window.materializeExpected(scenario, window.envIdentityOf(e), e.version);
+    const r = window.materializeExpected(scenario, window.envIdentityOf(e), e.version, expectedCtx);
     return r === null || r === undefined ? null : JSON.parse(JSON.stringify(r));
   };
 
