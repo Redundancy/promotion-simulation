@@ -85,9 +85,20 @@ function IntroScene({ dispatch }) {
             ))}
           </div>
 
-          <div style={{ marginTop: 20, fontFamily: "var(--mono)", fontSize: 10.5,
-                        color: "var(--fg-faint)" }}>
-            progress is saved per scenario in localStorage
+          <div style={{ marginTop: 20, display: "flex", alignItems: "center",
+                        justifyContent: "space-between", gap: 12 }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--fg-faint)" }}>
+              progress is saved per scenario in localStorage
+            </span>
+            <button onClick={() => dispatch({ type: "SHOW_GUIDE" })}
+                    style={{
+                      background: "transparent", border: "1px solid var(--border)",
+                      borderRadius: 4, padding: "4px 10px",
+                      fontFamily: "var(--mono)", fontSize: 11, color: "var(--fg-dim)",
+                      cursor: "pointer",
+                    }}>
+              how this works →
+            </button>
           </div>
         </div>
       </div>
@@ -898,6 +909,16 @@ function TopBar({ state, dispatch }) {
         <span style={{ color: "var(--fg-faint)", margin: "0 6px" }}>|</span>
         <span style={{ color: "var(--fg)" }}>deploy</span>
       </button>
+      <button onClick={() => dispatch({ type: "SHOW_GUIDE" })}
+              title="how this simulation works"
+              style={{
+                background: "transparent", border: "1px solid var(--border)",
+                borderRadius: 4, color: "var(--fg-dim)",
+                fontFamily: "var(--mono)", fontSize: 11, padding: "3px 8px",
+                cursor: "pointer",
+              }}>
+        ? guide
+      </button>
       <span className={`pill ${allOk ? "good" : "warn"}`}>
         {sat} / {total} directives
       </span>
@@ -1142,4 +1163,128 @@ function DebriefScene({ state, dispatch }) {
   );
 }
 
-Object.assign(window, { IntroScene, WorkspaceScene, DebriefScene });
+// ─────────────────────────────────────────────────────────────────────
+// GuideModal — "how this simulation works". Reachable from the intro
+// chooser and from the workspace topbar. Esc dismisses.
+// ─────────────────────────────────────────────────────────────────────
+
+function GuideModal({ dispatch }) {
+  const close = () => dispatch({ type: "HIDE_GUIDE" });
+
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  return (
+    <div className="scrim fade-in" onClick={close} style={{ zIndex: 80 }}>
+      <div className="lift" onClick={(e) => e.stopPropagation()}
+           style={{ width: 720, maxHeight: "85vh", background: "var(--panel)",
+                    border: "1px solid var(--border-strong)", borderRadius: 8,
+                    boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+                    display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)",
+                      display: "flex", alignItems: "center", gap: 10,
+                      background: "var(--panel-2)" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600,
+                         letterSpacing: "0.04em" }}>
+            how this simulation works
+          </span>
+          <span style={{ flex: 1 }} />
+          <button className="btn ghost sm" onClick={close}>esc · close</button>
+        </div>
+
+        <div style={{ padding: "18px 22px 22px", overflow: "auto", flex: 1,
+                      fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.6,
+                      color: "var(--fg-dim)" }}>
+
+          <GuideSection title="What this is">
+            <p>You're a platform engineer. You inherit a small repo of configuration, a handful of environments, and some requirements. Your job is to get each environment into the state the requirements describe.</p>
+            <p>This is a <em>simulation</em>, not a game. There's no score, no ranking, and no single right answer. Multiple strategies can satisfy the same requirements; the scenarios are designed so you can feel the trade-offs.</p>
+          </GuideSection>
+
+          <GuideSection title="Three places to look">
+            <ul>
+              <li><b>The repo</b> (left panel) — branches, each holding files. You can create and delete branches, create and delete files. Edits to files persist immediately.</li>
+              <li><b>The environments</b> (env cards in the <span className="mono">environments | promote | deploy</span> sheet) — each env has a <i>source</i> pointer to a file in the repo. When you press deploy on an env, the simulator runs that source.</li>
+              <li><b>The directives</b> (right panel and topbar pill) — the scenario's goals. The pill counts how many you've satisfied.</li>
+            </ul>
+          </GuideSection>
+
+          <GuideSection title="Two operations">
+            <p><b>Deploy</b> runs an env's source.</p>
+            <ul>
+              <li>If the source is a <span className="mono">.json</span> file, its contents are used as-is.</li>
+              <li>If the source is a <span className="mono">.js</span> file, it runs in a sandboxed Web Worker (no network, no clock, no randomness). The script's return value becomes the env's resolved config.</li>
+            </ul>
+            <p>The result is the env's <i>resolved config</i> — what's "deployed" right now.</p>
+            <p><b>Promote</b> moves things between envs by running configured <i>effects</i> on a promotion edge (e.g. <span className="mono">dev → staging</span>).</p>
+            <ul>
+              <li><span className="mono">copy-file</span> — copy a specific file from one branch/path to another.</li>
+              <li><span className="mono">copy-branch</span> — copy ALL files from one branch onto another.</li>
+            </ul>
+            <p>If an edge has no effects configured, promote does nothing. The scenario seeds the edges (which envs can promote where); you decide what each promote actually does.</p>
+          </GuideSection>
+
+          <GuideSection title="Knowing what's expected">
+            <p>Click any env's source file to open it in the editor. The right-hand panel shows three stacked panes:</p>
+            <ul>
+              <li><b>expected</b> — what the scenario says this env's resolved config should look like at its currently-deployed version.</li>
+              <li><b>would deploy now</b> — what would happen if you deployed right now (re-resolved from the current source).</li>
+              <li><b>deployed</b> — the snapshot from the most recent deploy.</li>
+            </ul>
+            <p>Keys that don't match the expected pane are highlighted. The chip at the top reads "matches expected" or "N keys to satisfy".</p>
+          </GuideSection>
+
+          <GuideSection title="Building your platform">
+            <p>The starting state is just a starting point. To shape it to your strategy:</p>
+            <ul>
+              <li><b>+ new branch</b> in the repo panel creates a branch (optionally copying files from another).</li>
+              <li><b>+ new file</b> creates a file on the active branch.</li>
+              <li>Each env card has source pickers (branch + path). Repoint them however you like — at a JSON file for direct config, or at a build script for derived values.</li>
+              <li>The promote-effects editor (below the env graph) lets you add or remove effects per edge. Configure copy-file / copy-branch effects to suit your strategy, or leave them empty for a no-op promote.</li>
+            </ul>
+          </GuideSection>
+
+          <GuideSection title="When the world changes mid-flight">
+            <p>Scenarios can fire <b>advisories</b> — modal popups that look like ops events ("v1.0.1 was just published, here's what it requires"). When an advisory fires, expected configs may change. Read the advisory carefully; the participant has to do the operational work to bring envs back into compliance.</p>
+          </GuideSection>
+
+          <GuideSection title="Tips">
+            <ul>
+              <li><b>Esc</b> closes modals and the topology sheet.</li>
+              <li><b>← scenarios</b> in the topbar returns you to the chooser without losing progress (state is saved per scenario).</li>
+              <li>When all directives are satisfied, <b>view debrief →</b> appears in the topbar. The debrief screen shows the trace and offers a reset.</li>
+              <li>Run <span className="mono">__reset()</span> in the browser console to nuke the current scenario's saved state.</li>
+            </ul>
+          </GuideSection>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GuideSection({ title, children }) {
+  return (
+    <section style={{ marginBottom: 22 }}>
+      <h3 style={{ margin: "0 0 8px",
+                   fontFamily: "var(--sans)", fontSize: 14, fontWeight: 600,
+                   color: "var(--fg)", letterSpacing: "-0.005em" }}>
+        {title}
+      </h3>
+      <div style={{ paddingLeft: 0 }}>{children}</div>
+      <style>{`
+        section h3 + div p { margin: 0 0 8px; }
+        section h3 + div ul { margin: 4px 0 8px; padding-left: 20px; }
+        section h3 + div li { margin-bottom: 4px; }
+        section h3 + div .mono { font-family: var(--mono); font-size: 12.5px; }
+        section h3 + div b { color: var(--fg); font-weight: 600; }
+        section h3 + div em { color: var(--fg); font-style: italic; }
+      `}</style>
+    </section>
+  );
+}
+
+Object.assign(window, { IntroScene, WorkspaceScene, DebriefScene, GuideModal });

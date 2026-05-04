@@ -65,6 +65,7 @@ function emptyState() {
     firedTriggers: [],         // ids of scenario triggers that have already fired
     activeRequirements: [],    // ids of in-force scenario requirements (drives expectedConfigFor)
     pendingAlert: null,        // alert awaiting participant acknowledgement (modal)
+    guideOpen: false,          // "how this works" modal visibility
     activeFile: null,
     openFiles: [],
     topologyOpen: false,
@@ -689,6 +690,12 @@ function reducer(state, action) {
 
     case "DISMISS_ALERT":
       return { ...state, pendingAlert: null };
+
+    case "SHOW_GUIDE":
+      return { ...state, guideOpen: true };
+
+    case "HIDE_GUIDE":
+      return { ...state, guideOpen: false };
 
     case "MARK_TRIGGER_FIRED": {
       if (!action.id) return state;

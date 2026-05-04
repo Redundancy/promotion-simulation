@@ -50,7 +50,12 @@ function App() {
   else if (state.scene === "debrief")  scene = <window.DebriefScene state={state} dispatch={dispatch} />;
   else                                 scene = <window.WorkspaceScene state={state} dispatch={dispatch} getState={getState} />;
 
-  return <ErrorBoundary>{scene}</ErrorBoundary>;
+  return (
+    <ErrorBoundary>
+      {scene}
+      {state.guideOpen && <window.GuideModal dispatch={dispatch} />}
+    </ErrorBoundary>
+  );
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
