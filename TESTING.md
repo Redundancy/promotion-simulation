@@ -12,7 +12,7 @@ If you fix a bug that wasn't caught by these checks, add the scenario here.
 ## State persistence / hydration
 
 State is persisted to `localStorage` per scenario, keyed
-`sim-prototype.v3.<scenarioId>`. `STORAGE_LAST_SCENARIO` records which one to
+`sim-prototype.v6.<scenarioId>`. `STORAGE_LAST_SCENARIO` records which one to
 hydrate on load. The persistence layer **strips transient fields** (currently
 `deploying`) before saving — they are not meaningful across sessions.
 
@@ -171,7 +171,7 @@ scenario's `promoteEdges` and edited from then on).
   dispatched `LOAD_SCENARIO`, clicking back-into-the-current-scenario from
   the topbar's "← scenarios" link would silently wipe the participant's
   progress. Fixed: the chooser tries `localStorage.getItem(storageKeyFor(id))`
-  first and dispatches `HYDRATE` when a v4 save exists; falls back to
+  first and dispatches `HYDRATE` when a v6 save exists; falls back to
   `LOAD_SCENARIO` otherwise.
 - **envs.json / promotions.json conflated with repo files.** Earlier
   versions projected these into every branch as auto-managed read-only
@@ -193,7 +193,7 @@ scenario's `promoteEdges` and edited from then on).
 
 - Add new fields to state? `emptyState()` must declare them, the HYDRATE
   backfill (`{ ...emptyState(), ...action.state }`) covers absences.
-- Bump the schema version (currently v4) and `STORAGE_KEY_PREFIX` when
+- Bump the schema version (currently v6) and `STORAGE_KEY_PREFIX` when
   any persisted-state shape changes.
 - Confirm the chooser restores from a save; then a fresh-pick (via
   `__reset` and re-pick) starts clean.
@@ -211,15 +211,40 @@ After any change that touches state, persistence, or rendering:
 2. Reload page mid-scenario. Workspace should restore exactly.
 3. Pick **s2-promotion**. Edit dev's config, deploy, promote→deploy through
    staging→prod, validate.
-4. Pick **s3-branch-per-env**. Open topology. Switch FileTree branches
+4. Pick **s3-build-script**. Confirm single branch (main) with `build.js`
+   and `config/version.json`. The seeded `build.js` has a TODO and only
+   returns `{ appVersion }` — the expected pane should show
+   `logLevel`/`replicas` as missing. Edit `build.js` to add tier-derived
+   `logLevel` and `replicas`. Edit version to v1.1.0. Deploy dev → expected
+   keys filled in for tier "dev". Deploy staging → values for tier
+   "staging". Deploy prod → values for tier "prod". All five directives ✓.
+5. Pick **s4-layered**. Confirm `defaults.json` and three env override
+   files. The seeded `build.js` has a TODO and reads only defaults — every
+   env shows `logLevel: info`. Extend `build.js` to read
+   `config/env/${env.name}.json` and merge it on top. Edit `defaults.json`
+   to `appVersion: v1.1.0`. Deploy each env → dev gets debug from
+   override, prod gets warn, staging keeps info from defaults. All five
+   directives ✓.
+6. Pick **s5-branching**. Three branches (dev, staging, prod), each with
+   its own copy of `build.js` + `config/version.json`. Switch FileTree to
+   dev's branch. Edit dev's `build.js` to add `cacheKey:
+   ${env.name}-${appVersion}`. Edit dev's `config/version.json` to v1.1.0.
+   Deploy dev — d1 turns green; d2/d3 stay green because staging/prod's
+   branches are untouched at v1.0.0 (this is the lesson). Promote
+   dev→staging, deploy staging, promote staging→prod, deploy prod. All
+   five directives ✓.
+7. Pick **s6-branch-per-env**. Open topology. Switch FileTree branches
    among dev/staging/prod. Edit `layers/defaults.json` on dev. Deploy dev.
    Promote dev→staging (verify trace says `copy-branch`). Switch to
    staging branch in FileTree — `defaults.json` should show dev's content.
    Deploy staging. Repeat for prod. Validate.
-5. **Cross-scenario hydration:** mid-scenario, exit to intro, pick a
+8. Pick **s7-routine-ship**. Confirm advisory trigger fires after dev
+   deploy at v1.1.0. Bring all envs into compliance with the new
+   requirement.
+9. **Cross-scenario hydration:** mid-scenario, exit to intro, pick a
    different scenario. State should reset cleanly for the new scenario;
    re-entering the previous one should restore its state.
-6. **Mid-deploy exit:** click deploy, immediately exit to intro. No crash;
-   no spurious `DEPLOY_RESOLVED` against the wrong scenario.
-7. Browser console: only the expected Babel "in-browser transformer"
-   warning. Anything else means a real issue.
+10. **Mid-deploy exit:** click deploy, immediately exit to intro. No crash;
+    no spurious `DEPLOY_RESOLVED` against the wrong scenario.
+11. Browser console: only the expected Babel "in-browser transformer"
+    warning. Anything else means a real issue.

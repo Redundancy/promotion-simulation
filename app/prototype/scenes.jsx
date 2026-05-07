@@ -1329,14 +1329,14 @@ env/<name>.json  →  overrides for one env`}
         <p>A build script reads the layers and returns the merged object. Shared values live once, in <span className="mono">defaults.json</span>; per-env tweaks live in tiny override files.</p>
         <p><b>Sweet spot:</b> multi-region or multi-tier systems where most config is shared and only a handful of values vary per env.</p>
         <p><b>Failure mode:</b> "where does this value come from?" gets harder as layers grow. Override-of-an-override-of-a-default is hard to debug. Mitigated by keeping the merge order short and explicit.</p>
-        <p>See <span className="mono">s3-branch-per-env</span> for a worked example with four layers (defaults / region / datacenter / env).</p>
+        <p>See <span className="mono">s6-branch-per-env</span> for a worked example with four layers (defaults / region / datacenter / env).</p>
       </GuideSection>
 
       <GuideSection title="3. Branch per environment">
         <p>Each env gets its own long-lived branch in the repo (<span className="mono">dev</span>, <span className="mono">staging</span>, <span className="mono">prod</span>). Each env's source points at the same path on its own branch — e.g. <span className="mono">dev:build.js</span>, <span className="mono">staging:build.js</span>, <span className="mono">prod:build.js</span>. Promotion is <span className="mono">copy-branch</span>: ship the entire branch state forward.</p>
         <p><b>Sweet spot:</b> teams that want a strong audit trail per env (the branch IS the history of what's deployed there), and approvals on a branch boundary. Plays well with code review on the promotion step.</p>
         <p><b>Failure mode:</b> branches drift if you hand-edit them out of order. The "correct" lineage requires discipline: edit dev, promote dev→staging, promote staging→prod. Hotfixes applied directly on prod are easy to lose on the next promotion.</p>
-        <p>See <span className="mono">s3-branch-per-env</span>.</p>
+        <p>See <span className="mono">s6-branch-per-env</span>.</p>
       </GuideSection>
 
       <GuideSection title="4. Single source of truth + derived envs">

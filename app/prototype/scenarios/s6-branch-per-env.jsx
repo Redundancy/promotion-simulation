@@ -1,5 +1,5 @@
 /* global window */
-// Scenario s3-branch-per-env — "Branch per env, layered build."
+// Scenario s6-branch-per-env — "Branch per env, layered build."
 //
 // Three envs (dev, staging, prod) each pointing at build.js on its own
 // branch (one branch per env). build.js merges layered config from same-branch
@@ -140,7 +140,7 @@ export default async function build(env, api) {
   };
 
   window.defineScenario({
-    id: "s3-branch-per-env",
+    id: "s6-branch-per-env",
     title: "branch per env, layered build",
     summary: "Each env's source is build.js on its own branch. Promotion copies the whole branch forward. The script merges defaults / region / datacenter / env layers AND derives a load-balancer hostname from their composition.",
     premise: [

@@ -1,5 +1,5 @@
 /* global window */
-// Scenario s4-routine-ship — "Routine version bump."
+// Scenario s7-routine-ship — "Routine version bump."
 //
 // Three envs (dev, staging, prod). The repo seed is intentionally minimal:
 // just the main branch with one config file per env, plus default copy-file
@@ -80,7 +80,7 @@
   };
 
   window.defineScenario({
-    id: "s4-routine-ship",
+    id: "s7-routine-ship",
     title: "routine version bump",
     summary: "Ship v1.1.0 across dev → staging → prod. The repo starts minimal — you build the structure that fits your strategy.",
     premise: [
