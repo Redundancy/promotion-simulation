@@ -130,7 +130,7 @@ function IntroChooser({ dispatch }) {
                       const raw = localStorage.getItem(window.storageKeyFor(s.id));
                       if (raw) {
                         const saved = JSON.parse(raw);
-                        if (saved && saved.__v === 7 && saved.state) {
+                        if (saved && saved.__v === 8 && saved.state) {
                           dispatch({ type: "HYDRATE", state: saved.state });
                           restored = true;
                         }
@@ -970,6 +970,16 @@ function TopBar({ state, dispatch }) {
         <span style={{ color: "var(--fg-faint)", margin: "0 6px" }}>|</span>
         <span style={{ color: "var(--fg)" }}>deploy</span>
       </button>
+      <button onClick={() => dispatch({ type: "SHOW_INTRO" })}
+              title="show the scenario brief"
+              style={{
+                background: "transparent", border: "1px solid var(--border)",
+                borderRadius: 4, color: "var(--fg-dim)",
+                fontFamily: "var(--mono)", fontSize: 11, padding: "3px 8px",
+                cursor: "pointer",
+              }}>
+        brief
+      </button>
       <button onClick={() => dispatch({ type: "SHOW_GUIDE" })}
               title="how this simulation works"
               style={{
@@ -1465,4 +1475,65 @@ function GuideSection({ title, children }) {
   );
 }
 
-Object.assign(window, { IntroScene, WorkspaceScene, DebriefScene, GuideModal });
+// ─────────────────────────────────────────────────────────────────────
+// ScenarioIntroModal — auto-shown on first workspace entry; recallable
+// from the topbar via "brief". Renders the scenario's `premise` text.
+// ─────────────────────────────────────────────────────────────────────
+
+function ScenarioIntroModal({ state, dispatch }) {
+  const close = () => dispatch({ type: "DISMISS_INTRO" });
+  const scenario = state.scenarioId ? window.getScenario(state.scenarioId) : null;
+
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  if (!scenario) return null;
+
+  return (
+    <div className="scrim fade-in" onClick={close} style={{ zIndex: 75 }}>
+      <div className="lift" onClick={(e) => e.stopPropagation()}
+           style={{ width: 720, maxHeight: "85vh", background: "var(--panel)",
+                    border: "1px solid var(--border-strong)", borderRadius: 8,
+                    boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+                    display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)",
+                      display: "flex", alignItems: "center", gap: 12,
+                      background: "var(--panel-2)" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)",
+                         letterSpacing: "0.04em" }}>{scenario.id}</span>
+          <span style={{ fontFamily: "var(--sans)", fontSize: 14, fontWeight: 600,
+                         color: "var(--fg)" }}>
+            {scenario.title}
+          </span>
+          <span style={{ flex: 1 }} />
+          <button className="btn ghost sm" onClick={close}>esc · close</button>
+        </div>
+
+        <div style={{ padding: "20px 24px 22px", overflow: "auto", flex: 1,
+                      fontFamily: "var(--sans)", fontSize: 13.5, lineHeight: 1.65,
+                      color: "var(--fg-dim)", whiteSpace: "pre-wrap" }}>
+          {scenario.premise || scenario.summary || "(no brief)"}
+        </div>
+
+        <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)",
+                      display: "flex", justifyContent: "flex-end",
+                      background: "var(--panel-2)" }}>
+          <button onClick={close}
+                  style={{
+                    background: "var(--bg)", border: "1px solid var(--accent)",
+                    borderRadius: 4, padding: "6px 14px",
+                    fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600,
+                    color: "var(--fg)", cursor: "pointer",
+                  }}>
+            got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { IntroScene, WorkspaceScene, DebriefScene, GuideModal, ScenarioIntroModal });

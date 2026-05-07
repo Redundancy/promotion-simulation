@@ -54,6 +54,9 @@ function App() {
     <ErrorBoundary>
       {scene}
       {state.guideOpen && <window.GuideModal dispatch={dispatch} />}
+      {state.introOpen && state.scene === "workspace" && (
+        <window.ScenarioIntroModal state={state} dispatch={dispatch} />
+      )}
     </ErrorBoundary>
   );
 }

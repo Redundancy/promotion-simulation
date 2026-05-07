@@ -41,9 +41,9 @@
 //     completed:       bool
 //   }
 
-const STORAGE_KEY_PREFIX = "sim-prototype.v7";
-const STORAGE_LAST_SCENARIO = "sim-prototype.v7.lastScenario";
-const SCHEMA_VERSION = 7;
+const STORAGE_KEY_PREFIX = "sim-prototype.v8";
+const STORAGE_LAST_SCENARIO = "sim-prototype.v8.lastScenario";
+const SCHEMA_VERSION = 8;
 
 function storageKeyFor(scenarioId) {
   return `${STORAGE_KEY_PREFIX}.${scenarioId}`;
@@ -66,6 +66,8 @@ function emptyState() {
     activeRequirements: [],    // ids of in-force scenario requirements (drives expectedConfigFor)
     pendingAlert: null,        // alert awaiting participant acknowledgement (modal)
     guideOpen: false,          // "how this works" modal visibility
+    introOpen: false,          // scenario brief modal visibility (auto-shown on first entry)
+    introSeen: false,          // has the participant dismissed it for this scenario
     activeFile: null,
     openFiles: [],
     topologyOpen: false,
@@ -136,6 +138,8 @@ function makeStateForScenario(scenarioId) {
     promoteEdges: seedEdges,
     activeFile,
     openFiles,
+    introOpen: true,           // auto-show the brief on first entry
+    introSeen: false,
     trace: [
       { at: 1, kind: "scenario-event", text: `scenario ${scenarioId} started`, ts: Date.now() },
     ],
@@ -696,6 +700,14 @@ function reducer(state, action) {
 
     case "HIDE_GUIDE":
       return { ...state, guideOpen: false };
+
+    case "SHOW_INTRO":
+      // Recall the brief; doesn't reset introSeen (so re-entering the
+      // scenario later still suppresses the auto-show).
+      return { ...state, introOpen: true };
+
+    case "DISMISS_INTRO":
+      return { ...state, introOpen: false, introSeen: true };
 
     case "MARK_TRIGGER_FIRED": {
       if (!action.id) return state;
