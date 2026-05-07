@@ -445,12 +445,8 @@
   <script>
     const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
       "theme": "dark",
-      "density": "default",
-      "layout": "default",
       "appUrl": "./app/",
-      "repoUrl": "https://github.com/",
-      "showHeroMeta": true,
-      "showStatusColumn": true
+      "repoUrl": "https://github.com/Redundancy/promotion-simulation"
     }/*EDITMODE-END*/;
 
     // Apply persisted theme/density/layout from localStorage immediately to avoid flash
@@ -458,14 +454,10 @@
       const saved = JSON.parse(localStorage.getItem("ps-landing-tweaks") || "{}");
       const merged = { ...TWEAK_DEFAULTS, ...saved };
       document.documentElement.dataset.theme = merged.theme;
-      document.documentElement.dataset.density = merged.density;
-      document.documentElement.dataset.layout = merged.layout;
       window.__INITIAL_TWEAKS__ = merged;
     } catch (e) {
       window.__INITIAL_TWEAKS__ = TWEAK_DEFAULTS;
       document.documentElement.dataset.theme = TWEAK_DEFAULTS.theme;
-      document.documentElement.dataset.density = TWEAK_DEFAULTS.density;
-      document.documentElement.dataset.layout = TWEAK_DEFAULTS.layout;
     }
   </script>
 

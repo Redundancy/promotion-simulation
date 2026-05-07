@@ -8,160 +8,91 @@ const { useEffect, useMemo } = React;
 // ─────────────────────────────────────────────────────────────────────
 
 function IntroScene({ dispatch }) {
-  // Two-step: a description page and a scenario chooser. Local state —
-  // resets to "landing" on reload, which is fine; one click brings you
-  // back to the chooser.
-  const [step, setStep] = React.useState("landing");
+  const scenarios = window.listScenarios();
 
   return (
     <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
                   padding: 40, background: "var(--bg)", overflow: "auto" }}>
-      <div style={{ width: 760, maxWidth: "100%", background: "var(--panel)",
+      <div style={{ width: 720, maxWidth: "100%", background: "var(--panel)",
                     border: "1px solid var(--border)", borderRadius: 8,
                     boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden",
                     margin: "auto" }}>
         <div style={{ padding: "16px 24px", borderBottom: "1px solid var(--border)",
-                      display: "flex", alignItems: "center", gap: 14 }}>
+                      display: "flex", alignItems: "center", gap: 14,
+                      background: "var(--panel-2)" }}>
           <span style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600,
                          letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ width: 12, height: 12, border: "1.5px solid var(--accent)", display: "inline-block" }} />
             promotion-simulation
           </span>
-          {step === "chooser" && (
-            <button onClick={() => setStep("landing")}
-                    style={{
-                      background: "transparent", border: 0, padding: 0,
-                      color: "var(--fg-faint)", fontFamily: "var(--mono)", fontSize: 11,
-                      paddingLeft: 12, borderLeft: "1px solid var(--border)",
-                      cursor: "pointer",
-                    }}>
-              ← back
-            </button>
-          )}
-        </div>
-
-        {step === "landing" ? (
-          <IntroLanding onContinue={() => setStep("chooser")} dispatch={dispatch} />
-        ) : (
-          <IntroChooser dispatch={dispatch} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function IntroLanding({ onContinue, dispatch }) {
-  return (
-    <div style={{ padding: "32px 32px 28px",
-                  fontFamily: "var(--sans)", fontSize: 14, lineHeight: 1.65,
-                  color: "var(--fg-dim)" }}>
-      <p style={{ margin: "0 0 14px" }}>
-        A simulator for hands-on practice with configuration management
-        across environments.
-      </p>
-      <p style={{ margin: "0 0 14px" }}>
-        When you run several environments — dev, staging, prod,
-        sometimes more — configuration tends to duplicate across them.
-        A shared value lives in N places, every change to it is N
-        edits, and one missed copy quietly leaves an environment
-        running the wrong thing. Different strategies contain this:
-        shared defaults with per-env overrides, build scripts that
-        derive values from each env's identity, branch-per-env
-        workflows. The scenarios here introduce them in order.
-      </p>
-      <p style={{ margin: "0 0 14px" }}>
-        Each one hands you a small repository, a few environments with
-        pointers into that repository, and a list of directives
-        describing what each environment is supposed to be running.
-        You edit, deploy, and promote between environments until the
-        directives are satisfied. Pick whichever sounds interesting;
-        progress is saved per scenario.
-      </p>
-
-      <div style={{ marginTop: 26, display: "flex", alignItems: "center",
-                    justifyContent: "space-between", gap: 12 }}>
-        <button onClick={() => dispatch({ type: "SHOW_GUIDE" })}
-                style={{
-                  background: "transparent", border: "1px solid var(--border)",
-                  borderRadius: 4, padding: "6px 12px",
-                  fontFamily: "var(--mono)", fontSize: 11, color: "var(--fg-dim)",
-                  cursor: "pointer",
-                }}>
-          how this works →
-        </button>
-        <button onClick={onContinue}
-                style={{
-                  background: "var(--bg)", border: "1px solid var(--accent)",
-                  borderRadius: 4, padding: "8px 16px",
-                  fontFamily: "var(--mono)", fontSize: 12, fontWeight: 600,
-                  color: "var(--fg)",
-                  cursor: "pointer",
-                }}>
-          browse scenarios →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function IntroChooser({ dispatch }) {
-  const scenarios = window.listScenarios();
-
-  return (
-    <div style={{ padding: "24px 24px 28px" }}>
-      <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--fg-faint)",
-                    letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 14 }}>
-        scenarios
-      </div>
-      {scenarios.length === 0 && (
-        <div style={{ color: "var(--bad)", fontFamily: "var(--mono)", fontSize: 12 }}>
-          No scenarios are registered.
-        </div>
-      )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {scenarios.map((s) => (
-          <button key={s.id}
-                  onClick={() => {
-                    // Try to restore saved progress first; fall back to a
-                    // fresh start if nothing's saved (or it's the wrong
-                    // schema version).
-                    let restored = false;
-                    try {
-                      const raw = localStorage.getItem(window.storageKeyFor(s.id));
-                      if (raw) {
-                        const saved = JSON.parse(raw);
-                        if (saved && saved.__v === 8 && saved.state) {
-                          dispatch({ type: "HYDRATE", state: saved.state });
-                          restored = true;
-                        }
-                      }
-                    } catch {}
-                    if (!restored) dispatch({ type: "LOAD_SCENARIO", scenarioId: s.id });
-                  }}
+          <span style={{ color: "var(--fg-faint)", fontFamily: "var(--mono)", fontSize: 11,
+                         paddingLeft: 12, borderLeft: "1px solid var(--border)" }}>
+            choose a scenario
+          </span>
+          <span style={{ flex: 1 }} />
+          <button onClick={() => dispatch({ type: "SHOW_GUIDE" })}
                   style={{
-                    textAlign: "left",
-                    background: "var(--bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 6,
-                    padding: "12px 14px",
+                    background: "transparent", border: "1px solid var(--border)",
+                    borderRadius: 4, padding: "4px 10px",
+                    fontFamily: "var(--mono)", fontSize: 11, color: "var(--fg-dim)",
                     cursor: "pointer",
-                    color: "var(--fg)",
-                    fontFamily: "var(--sans)",
-                    transition: "border-color 120ms",
-                    display: "flex", alignItems: "baseline", gap: 14,
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.borderColor = "var(--accent)"}
-                  onMouseLeave={(e) => e.currentTarget.style.borderColor = "var(--border)"}>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)",
-                           letterSpacing: "0.04em", minWidth: 130 }}>{s.id}</span>
-            <span style={{ fontSize: 14 }}>{s.title}</span>
+                  }}>
+            ? guide
           </button>
-        ))}
-      </div>
+        </div>
 
-      <div style={{ marginTop: 20, fontFamily: "var(--mono)", fontSize: 10.5,
-                    color: "var(--fg-faint)" }}>
-        progress is saved per scenario in localStorage
+        <div style={{ padding: "20px 24px 24px" }}>
+          {scenarios.length === 0 && (
+            <div style={{ color: "var(--bad)", fontFamily: "var(--mono)", fontSize: 12 }}>
+              No scenarios are registered.
+            </div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {scenarios.map((s) => (
+              <button key={s.id}
+                      onClick={() => {
+                        // Try to restore saved progress first; fall back to a
+                        // fresh start if nothing's saved (or it's the wrong
+                        // schema version).
+                        let restored = false;
+                        try {
+                          const raw = localStorage.getItem(window.storageKeyFor(s.id));
+                          if (raw) {
+                            const saved = JSON.parse(raw);
+                            if (saved && saved.__v === 8 && saved.state) {
+                              dispatch({ type: "HYDRATE", state: saved.state });
+                              restored = true;
+                            }
+                          }
+                        } catch {}
+                        if (!restored) dispatch({ type: "LOAD_SCENARIO", scenarioId: s.id });
+                      }}
+                      style={{
+                        textAlign: "left",
+                        background: "var(--bg)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        padding: "12px 14px",
+                        cursor: "pointer",
+                        color: "var(--fg)",
+                        fontFamily: "var(--sans)",
+                        transition: "border-color 120ms",
+                        display: "flex", alignItems: "baseline", gap: 14,
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = "var(--accent)"}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = "var(--border)"}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)",
+                               letterSpacing: "0.04em", minWidth: 130 }}>{s.id}</span>
+                <span style={{ fontSize: 14 }}>{s.title}</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginTop: 18, fontFamily: "var(--mono)", fontSize: 10.5,
+                        color: "var(--fg-faint)" }}>
+            progress is saved per scenario in localStorage
+          </div>
+        </div>
       </div>
     </div>
   );
