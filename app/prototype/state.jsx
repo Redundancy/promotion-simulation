@@ -41,9 +41,9 @@
 //     completed:       bool
 //   }
 
-const STORAGE_KEY_PREFIX = "sim-prototype.v6";
-const STORAGE_LAST_SCENARIO = "sim-prototype.v6.lastScenario";
-const SCHEMA_VERSION = 6;
+const STORAGE_KEY_PREFIX = "sim-prototype.v7";
+const STORAGE_LAST_SCENARIO = "sim-prototype.v7.lastScenario";
+const SCHEMA_VERSION = 7;
 
 function storageKeyFor(scenarioId) {
   return `${STORAGE_KEY_PREFIX}.${scenarioId}`;

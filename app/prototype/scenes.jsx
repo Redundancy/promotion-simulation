@@ -60,17 +60,22 @@ function IntroLanding({ onContinue, dispatch }) {
         across environments.
       </p>
       <p style={{ margin: "0 0 14px" }}>
-        Each scenario hands you a small repository, a few environments
-        with pointers into that repository, and a list of directives —
-        the dev team's account of what each environment is supposed to
-        be running. You edit files, deploy, and promote between
-        environments to satisfy the directives.
+        When you run several environments — dev, staging, prod,
+        sometimes more — configuration tends to duplicate across them.
+        A shared value lives in N places, every change to it is N
+        edits, and one missed copy quietly leaves an environment
+        running the wrong thing. Different strategies contain this:
+        shared defaults with per-env overrides, build scripts that
+        derive values from each env's identity, branch-per-env
+        workflows. The scenarios here introduce them in order.
       </p>
       <p style={{ margin: "0 0 14px" }}>
-        Scenarios introduce platform-engineering concepts in order —
-        single-file config, promotion mechanics, build scripts, layered
-        config, branches — and end with two capstones. Pick whichever
-        sounds interesting; progress is saved per scenario.
+        Each one hands you a small repository, a few environments with
+        pointers into that repository, and a list of directives
+        describing what each environment is supposed to be running.
+        You edit, deploy, and promote between environments until the
+        directives are satisfied. Pick whichever sounds interesting;
+        progress is saved per scenario.
       </p>
 
       <div style={{ marginTop: 26, display: "flex", alignItems: "center",
@@ -125,7 +130,7 @@ function IntroChooser({ dispatch }) {
                       const raw = localStorage.getItem(window.storageKeyFor(s.id));
                       if (raw) {
                         const saved = JSON.parse(raw);
-                        if (saved && saved.__v === 6 && saved.state) {
+                        if (saved && saved.__v === 7 && saved.state) {
                           dispatch({ type: "HYDRATE", state: saved.state });
                           restored = true;
                         }
@@ -1385,14 +1390,14 @@ env/<name>.json  →  overrides for one env`}
         <p>A build script reads the layers and returns the merged object. Shared values live once, in <span className="mono">defaults.json</span>; per-env tweaks live in tiny override files.</p>
         <p><b>Sweet spot:</b> multi-region or multi-tier systems where most config is shared and only a handful of values vary per env.</p>
         <p><b>Failure mode:</b> "where does this value come from?" gets harder as layers grow. Override-of-an-override-of-a-default is hard to debug. Mitigated by keeping the merge order short and explicit.</p>
-        <p>See <span className="mono">s6-branch-per-env</span> for a worked example with four layers (defaults / region / datacenter / env).</p>
+        <p>See <span className="mono">s7-branch-per-env</span> for a worked example with four layers (defaults / region / datacenter / env).</p>
       </GuideSection>
 
       <GuideSection title="3. Branch per environment">
         <p>Each env gets its own long-lived branch in the repo (<span className="mono">dev</span>, <span className="mono">staging</span>, <span className="mono">prod</span>). Each env's source points at the same path on its own branch — e.g. <span className="mono">dev:build.js</span>, <span className="mono">staging:build.js</span>, <span className="mono">prod:build.js</span>. Promotion is <span className="mono">copy-branch</span>: ship the entire branch state forward.</p>
         <p><b>Sweet spot:</b> teams that want a strong audit trail per env (the branch IS the history of what's deployed there), and approvals on a branch boundary. Plays well with code review on the promotion step.</p>
         <p><b>Failure mode:</b> branches drift if you hand-edit them out of order. The "correct" lineage requires discipline: edit dev, promote dev→staging, promote staging→prod. Hotfixes applied directly on prod are easy to lose on the next promotion.</p>
-        <p>See <span className="mono">s6-branch-per-env</span>.</p>
+        <p>See <span className="mono">s7-branch-per-env</span>.</p>
       </GuideSection>
 
       <GuideSection title="4. Single source of truth + derived envs">

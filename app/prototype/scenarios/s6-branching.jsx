@@ -1,5 +1,5 @@
 /* global window */
-// Scenario s5-branching — "Branch per env: refactor in isolation."
+// Scenario s6-branching — "Branch per env: refactor in isolation."
 //
 // First scenario where the participant uses branches. Each env has its OWN
 // branch holding a copy of build.js + config/version.json. The dev team is
@@ -114,7 +114,7 @@ export default async function build(env, api) {
   const envOrder = ["dev", "staging", "prod"];
 
   window.defineScenario({
-    id: "s5-branching",
+    id: "s6-branching",
     title: "branch per env: refactor in isolation",
     summary: "Each env has its own branch holding its own build.js. Refactor the script on dev — add a new derived field and bump version — while staging and prod keep running their stable v1.0.0. Then promote forward.",
     premise: [

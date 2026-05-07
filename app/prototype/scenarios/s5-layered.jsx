@@ -1,7 +1,7 @@
 /* global window */
-// Scenario s4-layered — "Shared defaults, per-env overrides."
+// Scenario s5-layered — "Shared defaults, per-env overrides."
 //
-// Adds layered (override-wins) merging on top of the build.js skill from s3.
+// Adds layered (override-wins) merging on top of the build.js skill from s4.
 // Shared values live in defaults.json once; per-env overrides live in tiny
 // override files. The script merges them.
 //
@@ -101,7 +101,7 @@ export default async function build(env, api) {
   const branches = { main: { ...initialFiles } };
 
   window.defineScenario({
-    id: "s4-layered",
+    id: "s5-layered",
     title: "shared defaults, per-env overrides",
     summary: "build.js merges a shared defaults file with a tiny per-env override. The seeded script ignores the overrides — you teach it to merge them.",
     premise: [

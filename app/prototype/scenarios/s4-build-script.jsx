@@ -1,5 +1,5 @@
 /* global window */
-// Scenario s3-build-script — "One script, derived config."
+// Scenario s4-build-script — "One script, derived config."
 //
 // First scenario where the participant sees a build script. Single branch,
 // three envs all sourcing the same build.js.
@@ -85,15 +85,18 @@ export default async function build(env, api) {
   const branches = { main: { ...initialFiles } };
 
   window.defineScenario({
-    id: "s3-build-script",
+    id: "s4-build-script",
     title: "one script, derived config",
     summary: "A single build.js on main produces config for every env. The seeded script is incomplete — you finish it so each env gets the right logLevel and replicas for its tier.",
     premise: [
-      "You're shipping v1.1.0 to dev → staging → prod. This time the repo holds a build SCRIPT (build.js) instead of config files.",
+      "In the previous scenario you maintained five JSON files by hand and felt how every shared change is N edits, every derived-by-convention value is one careful retype away from drift. The fix: stop hand-writing values that are computable. A build SCRIPT runs at deploy time, takes each env's identity as input, and produces that env's config — so values like logLevel-by-tier or hostname-by-name-and-region become FORMULAS instead of N copies.",
       "",
-      "  • All three envs source the same script: main:build.js.",
-      "  • On every deploy the simulator runs the script in a sandboxed Web Worker, passing it the env's identity (env.name, env.tier, env.region) and a read-only file API.",
-      "  • Whatever the script returns becomes that env's resolved config.",
+      "This scenario shrinks back to three envs to focus on the script. The repo holds:",
+      "",
+      "  • build.js               (the script every env runs)",
+      "  • config/version.json    (the one input the script reads)",
+      "",
+      "All three envs source the same file: main:build.js. On deploy, the simulator runs the script in a sandboxed Web Worker, passes it the env's identity (env.name, env.tier, env.region) and a read-only file API, and uses whatever the script returns as that env's resolved config.",
       "",
       "The seeded script is incomplete — it only returns { appVersion }. Open build.js: there's a TODO at the top describing what's missing. The dev team needs each env to also get a tier-specific logLevel and replica count, derived from env.tier. You'll finish the script.",
       "",
